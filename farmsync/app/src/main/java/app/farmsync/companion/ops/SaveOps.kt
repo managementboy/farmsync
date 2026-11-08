@@ -4,6 +4,8 @@ import app.farmsync.companion.saves.Farm
 import app.farmsync.companion.saves.FarmScanner
 import app.farmsync.companion.saves.GameVersion
 import app.farmsync.companion.saves.SaveFs
+import app.farmsync.companion.saves.SaveXml
+import app.farmsync.companion.saves.SaveXmlException
 import app.farmsync.companion.shizuku.SavePaths
 import app.farmsync.companion.store.SnapshotMeta
 import app.farmsync.companion.store.SnapshotOrigin
@@ -21,6 +23,8 @@ class OpBlocked(val reason: Reason, detail: String = reason.name) : Exception(de
         MIDDAY,
         /** An earlier write to this farm was interrupted and is not repaired yet. */
         NEEDS_REPAIR,
+        /** The new files are not a complete, valid save for this farm (wrong root, ID, broken XML). */
+        INVALID_SAVE,
     }
 }
 
@@ -57,6 +61,11 @@ enum class Recovery {
     COMPLETED,
     /** Nothing had changed yet. */
     NOTHING_CHANGED,
+    /**
+     * The farm changed in a way the interrupted write can't explain (it was played since):
+     * the current state is kept as it is, with a fresh snapshot. Nothing is overwritten.
+     */
+    KEPT_CURRENT,
     /** The farm was put back to the state before the write, verified. */
     ROLLED_BACK,
     /** Stardew is running; try again once it's closed. */
@@ -82,9 +91,14 @@ class SaveOps(
     private val tempDir: File,
     private val journal: WriteJournal,
     private val clock: () -> Long = System::currentTimeMillis,
+    /**
+     * Called once a deliberate write (restore, import) is complete, before its journal entry
+     * goes, so the sync intent survives a crash (it is called again by [recover] then).
+     */
+    private val onDeliberate: (farm: String) -> Unit = {},
 ) {
     fun restore(snapshot: SnapshotMeta, installedGameVersion: String?) =
-        replace(SnapshotSource(store, snapshot), installedGameVersion, SnapshotOrigin.BEFORE_RESTORE)
+        replace(SnapshotSource(store, snapshot), installedGameVersion, SnapshotOrigin.BEFORE_RESTORE, deliberate = true)
 
     /**
      * Replaces the standard files of an existing farm with [source].
@@ -97,6 +111,7 @@ class SaveOps(
         origin: SnapshotOrigin,
         expectedFingerprint: String? = null,
         allowMidday: Boolean = true,
+        deliberate: Boolean = false,
     ): OpResult {
         val name = source.farm
         if (journal.has(name)) throw OpBlocked(OpBlocked.Reason.NEEDS_REPAIR)
@@ -111,7 +126,7 @@ class SaveOps(
 
         stageAll(source, files) // nothing live has changed if this throws
         val entry = JournalEntry(name, JournalEntry.Kind.REPLACE, before.id, beforeMd5,
-            files.associateWith { source.md5(it) }, clock())
+            files.associateWith { source.md5(it) }, clock(), deliberate)
         journal.save(entry)
 
         // Commit boundary: the farm must still be exactly what the snapshot holds (R2, and no
@@ -131,6 +146,7 @@ class SaveOps(
             fs.commit(name, commitOrder(files))
             val pointerRemoved = fs.removeMiddayPointer(name) // R7, the pointer is in `before`
             check(matches(name, entry.targetMd5, entry.targetMd5.keys)) { "Verification failed" } // R9
+            if (deliberate) onDeliberate(name)
             journal.clear(name)
             return OpResult(before, pointerRemoved)
         } catch (e: Exception) {
@@ -142,18 +158,21 @@ class SaveOps(
     }
 
     /** Adds a farm that is not on this device yet, as a new folder. */
-    fun addNew(source: FileSource, installedGameVersion: String?): OpResult {
+    fun addNew(source: FileSource, installedGameVersion: String?, deliberate: Boolean = false): OpResult {
         val name = source.farm
         val pending = journal.get(name)
         if (pending != null && pending.kind != JournalEntry.Kind.NEW_FARM) throw OpBlocked(OpBlocked.Reason.NEEDS_REPAIR)
         val existing = currentFarm(name)
-        // A folder left by an interrupted download of the same farm may be finished; any other is not ours.
-        if (existing != null && pending == null) throw OpBlocked(OpBlocked.Reason.FARM_EXISTS)
+        // A folder left by an interrupted download of this farm may be finished, but only while
+        // it still holds nothing but files from that download (never a farm played since).
+        if (existing != null && (pending == null || !isOnlyPartOf(name, pending.targetMd5))) {
+            throw OpBlocked(OpBlocked.Reason.FARM_EXISTS)
+        }
         val files = checkPreconditions(source, installedGameVersion)
 
         // Recorded before the folder exists, so a folder this app creates is always known as its own.
         val entry = JournalEntry(name, JournalEntry.Kind.NEW_FARM, null, emptyMap(),
-            files.associateWith { source.md5(it) }, clock())
+            files.associateWith { source.md5(it) }, clock(), deliberate)
         journal.save(entry)
         try {
             if (existing == null) fs.createFarmFolder(name)
@@ -162,6 +181,7 @@ class SaveOps(
             if (fs.isGameRunning()) throw OpBlocked(OpBlocked.Reason.GAME_RUNNING)
             fs.commit(name, commitOrder(files))
             check(matches(name, entry.targetMd5, entry.targetMd5.keys)) { "Verification failed" }
+            if (deliberate) onDeliberate(name)
             journal.clear(name)
             return OpResult(before = null, pointerRemoved = false)
         } catch (e: OpBlocked) {
@@ -176,7 +196,12 @@ class SaveOps(
         }
     }
 
-    /** Finishes or undoes an interrupted write. Run before any snapshot or sync of that farm. */
+    /**
+     * Finishes or undoes an interrupted write. Run before any snapshot or sync of that farm.
+     * It only ever undoes states the interrupted write itself can explain (every file is either
+     * its old or its new version). Anything else means the farm was played since: that state is
+     * kept, with a fresh snapshot, and nothing is overwritten.
+     */
     fun recover(entry: JournalEntry): Recovery {
         val name = entry.farm
         if (fs.isGameRunning()) return Recovery.WAITING_FOR_GAME
@@ -187,20 +212,28 @@ class SaveOps(
         }
         runCatching { fs.discardStaged(name) }
         val all = SavePaths.stageable(name)
+        val pointerNow = fs.md5("$name/${SavePaths.POINTER}")
+        val oldPointer = entry.beforeMd5[SavePaths.POINTER]
         return when {
-            matches(name, entry.targetMd5, entry.targetMd5.keys) -> {
-                // Only the old pointer (saved in the snapshot) is removed, never a newer one.
-                val pointer = entry.beforeMd5[SavePaths.POINTER]
-                if (pointer != null && fs.md5("$name/${SavePaths.POINTER}") == pointer) fs.removeMiddayPointer(name)
+            // The write finished; at most the old pointer was still to be removed.
+            matches(name, entry.targetMd5, entry.targetMd5.keys) && (pointerNow == "" || pointerNow == oldPointer) -> {
+                if (oldPointer != null && pointerNow == oldPointer) fs.removeMiddayPointer(name)
+                if (entry.deliberate) onDeliberate(name)
                 journal.clear(name)
                 Recovery.COMPLETED
             }
-            entry.kind == JournalEntry.Kind.NEW_FARM -> Recovery.INCOMPLETE_NEW_FARM
+            entry.kind == JournalEntry.Kind.NEW_FARM -> {
+                if (isOnlyPartOf(name, entry.targetMd5)) {
+                    Recovery.INCOMPLETE_NEW_FARM // downloading or importing it again finishes it
+                } else {
+                    keepCurrent(farm, name)
+                }
+            }
             matches(name, entry.beforeMd5, all) -> {
                 journal.clear(name)
                 Recovery.NOTHING_CHANGED
             }
-            else -> {
+            explainedBy(name, entry) -> {
                 val before = store.list(name).firstOrNull { it.id == entry.beforeSnapshot } ?: return Recovery.NEEDS_HELP
                 if (runCatching { rollback(entry, before) }.isSuccess) {
                     journal.clear(name)
@@ -209,7 +242,28 @@ class SaveOps(
                     Recovery.NEEDS_HELP
                 }
             }
+            else -> keepCurrent(farm, name)
         }
+    }
+
+    /** The farm was played since the interruption: keep it exactly, with a snapshot. */
+    private fun keepCurrent(farm: Farm, name: String): Recovery {
+        if (farm.isComplete) runCatching { store.create(fs, farm, SnapshotOrigin.AUTO_OPEN) }
+        journal.clear(name)
+        return Recovery.KEPT_CURRENT
+    }
+
+    /** Every file is either its state before the write or the one the write put there. */
+    private fun explainedBy(farm: String, e: JournalEntry) = SavePaths.stageable(farm).all { n ->
+        val now = fs.md5("$farm/$n")
+        now == (e.beforeMd5[n] ?: "") || (e.targetMd5[n] != null && now == e.targetMd5[n])
+    }
+
+    /** The folder holds only (some of) [target]'s files and no pointer: nothing played in it. */
+    private fun isOnlyPartOf(farm: String, target: Map<String, String>): Boolean {
+        val f = currentFarm(farm) ?: return true
+        if (f.files.any { it.name == SavePaths.POINTER }) return false
+        return f.files.all { file -> target[file.name]?.let { it == fs.md5("$farm/${file.name}") } == true }
     }
 
     /** True if the farm is an unfinished new folder from an interrupted download or import. */
@@ -217,8 +271,8 @@ class SaveOps(
 
     /**
      * Puts back the exact files from before the write: the standard files that existed, then
-     * BACKUP_SAVE if there was one (R7), and verifies them. `_old` files that the write added
-     * and that did not exist before stay (there is no delete); the game ignores them.
+     * BACKUP_SAVE if there was one (R7), removes `_old` files the write added, and verifies
+     * that every file is exactly as before (present or absent).
      */
     private fun rollback(entry: JournalEntry, before: SnapshotMeta) {
         val name = entry.farm
@@ -227,19 +281,39 @@ class SaveOps(
         val names = entry.beforeMd5.keys.filter { it in back.names }
         stageAll(back, names)
         fs.commit(name, commitOrder(names))
-        check(matches(name, entry.beforeMd5, entry.beforeMd5.keys)) { "Rollback verification failed" }
+        // `_old` files the failed write added (absent before) are removed again, but only if they
+        // are still exactly what the write put there.
+        for (n in entry.targetMd5.keys - entry.beforeMd5.keys) {
+            if (fs.md5("$name/$n") == entry.targetMd5[n]) fs.removeIntroducedFile(name, n, entry.targetMd5.getValue(n))
+        }
+        check(matches(name, entry.beforeMd5, SavePaths.stageable(name))) { "Rollback verification failed" }
     }
 
+    /**
+     * R2, R6, R8 on the actual bytes that would be written (not on stored metadata): both
+     * required files must be complete, valid saves of this farm, and their own version tag
+     * must be one the installed game can open.
+     */
     private fun checkPreconditions(source: FileSource, installedGameVersion: String?): List<String> {
         if (fs.isGameRunning()) throw OpBlocked(OpBlocked.Reason.GAME_RUNNING) // R2
-        if (!GameVersion.isValid(installedGameVersion) || !GameVersion.isValid(source.gameVersion)) {
-            throw OpBlocked(OpBlocked.Reason.GAME_VERSION_UNKNOWN) // R6 fails closed
-        }
-        if (!GameVersion.canLoad(source.gameVersion, installedGameVersion)) {
-            throw OpBlocked(OpBlocked.Reason.NEWER_GAME_VERSION, "${source.gameVersion} > $installedGameVersion")
-        }
         val files = source.names.filter { it in SavePaths.standardFiles(source.farm) }
         if (source.farm !in files || "SaveGameInfo" !in files) throw OpBlocked(OpBlocked.Reason.INCOMPLETE)
+        val dir = File(tempDir, "check").apply { deleteRecursively(); mkdirs() }
+        val checked = try {
+            source.copyTo(source.farm, File(dir, source.farm))
+            source.copyTo("SaveGameInfo", File(dir, "SaveGameInfo"))
+            SaveXml.check(source.farm, dir)
+        } catch (e: SaveXmlException) {
+            throw OpBlocked(OpBlocked.Reason.INVALID_SAVE, e.message ?: "invalid")
+        } finally {
+            dir.deleteRecursively()
+        }
+        if (!GameVersion.isValid(installedGameVersion) || !GameVersion.isValid(checked.gameVersion)) {
+            throw OpBlocked(OpBlocked.Reason.GAME_VERSION_UNKNOWN) // R6 fails closed
+        }
+        if (!GameVersion.canLoad(checked.gameVersion, installedGameVersion)) {
+            throw OpBlocked(OpBlocked.Reason.NEWER_GAME_VERSION, "${checked.gameVersion} > $installedGameVersion")
+        }
         return files
     }
 

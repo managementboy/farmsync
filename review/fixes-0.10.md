@@ -50,3 +50,29 @@ Every finding in `codex-findings.md` was checked against the code and fixed. New
 - **The new service calls:** `O_NOFOLLOW`, `fchmod` and `Os.remove` on Android's emulated storage. Test on a test copy of a farm.
 - **The one-time migration of the household vault:** both devices must run 0.10.0 before either syncs again.
 - **Accessibility:** TalkBack on the sync switch, and 200% font size on phone and tablet.
+
+# Response to the 0.10.0 re-check (Farm Sync 0.10.1)
+
+Each of the eight findings in `codex-recheck-0.10.md` was confirmed in the code and fixed. There are 76 unit tests now, 14 of them new.
+
+| # | Fix | Tests |
+|---|---|---|
+| R01 | Recovery only undoes states the interrupted write can explain: every file must be its old or its new version, and the pointer unchanged. Anything else means the farm was played since: it is kept exactly, a snapshot is made, and the journal entry is closed (`KEPT_CURRENT`). A half-written new farm may be finished only while it holds nothing but files from that download. | `SaveOpsTest.aDayPlayedAfterAnInterruptedWriteIsKept`, `aMixedStateFromAnInterruptionIsStillRolledBack`, `aNewFarmPlayedAfterAnInterruptedDownloadIsNeverOverwritten` |
+| R02 | Rollback removes `_old` files the failed write added, through a new narrow service call. It removes only `<farm>_old` and `SaveGameInfo_old`, and only while the file still has the md5 that write put there. Rollback then verifies every file's presence and absence. | `SaveOpsTest.rollbackRemovesOnlyOptionalFilesIntroducedByTheFailedWrite` |
+| R03 | Before any staging, the actual bytes of the main file and SaveGameInfo are checked, for restores as well as imports. Snapshot index metadata is no longer trusted for R6. | `SaveOpsTest.restoreChecksTheVersionInTheActualFilesNotTheIndex` |
+| R04 | New `SaveXml`: a streaming SAX check of both files. It requires a complete, well-formed document with root `SaveGame` or `Farmer`, exactly one root-level ID, and version tags that agree. DTDs are refused. Imports, downloads and restores all use it, and the main file is no longer loaded into memory as a whole. | `ImportReaderTest.rejectsBrokenOrForeignXml`, `SaveOpsTest.brokenSaveFilesAreNeverWritten`, real 4 MB save in `readsRealPcZipIfAvailable` |
+| R05 | The "deliberate" intent is stored in the write journal. The sync flag is set before the journal entry is closed, and set again if recovery completes the write. Parents are stored across up to 12 properties (72 ids). A forced upload also marks every current tip as lost first, so a restore wins even with many tips. | `SaveOpsTest.aDeliberateRestoreKeepsItsSyncIntentThroughACrash`, `aSyncDownloadIsNotADeliberateWrite`, `SyncEngineTest.aRestoreBeatsManyCopiesOfTheSameSave` (through the real property encoding) |
+| R06 | Migration is resumable. It runs whenever an old zip still lacks properties, uses every manifest (also those marked done) to know which zips are orphans, and marks manifests done last. Ids already in use are never reused. Two devices that create a vault at the same moment both pick the oldest. | `VaultMigrationTest` (fake Drive; interrupted after every update 0–5) |
+| R07 | A new version lists as parents its base and every other upload of the same save, so identical uploads are one point in history. | `SyncEngineTest.afterIdenticalUploadsPlayOnOneDeviceIsAnOrdinaryUpload` |
+| R08 | The pending Google action (link, sync, download of farm X, mid-day download of farm X) is saved in the ViewModel's saved state. After Android recreates the app, exactly that action continues. If it is unknown, the user is asked to tap again. | (Android-only; manual check) |
+
+Also:
+- **Downloads:** downloaded copies are removed after each pull or download.
+- **Service:** the `chmod` fallback checks first that the path is still a plain file.
+- **Privacy policy:** now says that more play time can win over a later in-game date.
+
+**Still open (needs devices):**
+- The service's new file operations on emulated storage.
+- The household vault migration. Install on both devices before either syncs.
+- The remaining window in which Stardew could start between two renames.
+- TalkBack, and layout at 200% font size.

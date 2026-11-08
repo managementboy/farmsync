@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import app.farmsync.companion.ops.Exporter
 import app.farmsync.companion.ops.ImportCandidate
@@ -104,10 +105,12 @@ sealed interface Message {
     data object ShizukuMissing : Message
     data class SyncDone(val uploaded: Int, val downloaded: Int, val resolved: Int, val attention: Int) : Message
     /** Interrupted writes found at start and what was done; [since] = when each write began. */
+    /** Google sign-in came back after Android closed the app, and the request is unknown. */
+    data object AuthRetry : Message
     data class Recovered(val items: List<Pair<String, Recovery>>, val since: Map<String, Long>) : Message
 }
 
-class FarmListViewModel(app: Application) : AndroidViewModel(app) {
+class FarmListViewModel(app: Application, private val saved: SavedStateHandle) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state
@@ -120,7 +123,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     /** A Google authorization is in progress: further requests wait for it instead of racing (F17). */
     private var authInFlight = false
 
-    private fun ops(fs: SaveFs) = SaveOps(fs, store, cacheDir, journal)
+    private fun ops(fs: SaveFs) = SaveOps(fs, store, cacheDir, journal, onDeliberate = ::markDeliberate)
 
     init {
         // Show the last known sync status per farm (also after the app was closed).
@@ -137,14 +140,20 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- Google Drive
 
     /** Links this device to a Google account's vault. Google shows its account chooser. */
-    fun linkDrive() = withToken(email = null) { token -> finishLink(token) }
+    fun linkDrive() = withToken(email = null, action = ACTION_LINK) { token -> finishLink(token) }
 
     fun onAuthResult(data: Intent?) {
         authInFlight = false
-        // After Android recreated the app while Google's screen was open, the original request
-        // is gone: continue with the safe default (finish linking, or a normal sync).
-        val next = afterAuth ?: { token: String -> if (syncPrefs.email == null) finishLink(token) else syncNow() }
+        // After Android recreated the app while Google's screen was open, the original callback
+        // is gone; the action itself was saved, so exactly that action continues (F17, R08).
+        val action = saved.get<String>(KEY_PENDING_AUTH)
+        saved.remove<String>(KEY_PENDING_AUTH)
+        val next = afterAuth ?: resumeAction(action)
         afterAuth = null
+        if (next == null) {
+            _state.update { it.copy(message = Message.AuthRetry) }
+            return
+        }
         try {
             next(DriveAuth.tokenFromResult(getApplication(), data))
         } catch (e: Exception) {
@@ -156,7 +165,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
 
     fun confirmCreateVault() {
         _state.update { it.copy(sync = it.sync.copy(confirmCreateVaultFor = null)) }
-        withToken(syncPrefs.email ?: pendingEmail) { token ->
+        withToken(syncPrefs.email ?: pendingEmail, ACTION_LINK) { token ->
             runBusyNoFs {
                 val api = DriveApi(token)
                 val vault = Vault.find(api) ?: Vault.create(api)
@@ -187,7 +196,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
      * Syncs every farm switched on for sync. Runs automatically whenever the app opens or comes
      * back ([quiet] = only report if something happened), and from the button.
      */
-    fun syncNow(quiet: Boolean = false) = withDrive { engine, vault ->
+    fun syncNow(quiet: Boolean = false) = withDrive(ACTION_SYNC) { engine, vault ->
         val unfinished = _state.value.farms.map { it.folder }.filter { journal.get(it)?.kind == app.farmsync.companion.ops.JournalEntry.Kind.NEW_FARM }.toSet()
         val report = SyncRunner.lock.withLock { SyncRunner.run(engine, vault, _state.value.farms, syncPrefs::isEnabled, unfinished) }
         val results = report.results
@@ -219,7 +228,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** The user allowed a newer day to replace this device's unsaved mid-day progress. */
-    fun downloadAnyway(farm: String) = withDrive { engine, _ ->
+    fun downloadAnyway(farm: String) = withDrive(ACTION_MIDDAY + farm) { engine, _ ->
         val local = _state.value.farms.first { it.folder == farm }
         val r = SyncRunner.lock.withLock { engine.sync(local, farm, allowMidday = true) }
         SyncRunner.log(getApplication()).append("user", listOf(r))
@@ -227,7 +236,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
         null
     }
 
-    fun downloadFromVault(farm: String) = withDrive { engine, _ ->
+    fun downloadFromVault(farm: String) = withDrive(ACTION_DOWNLOAD + farm) { engine, _ ->
         val r = SyncRunner.lock.withLock { engine.downloadNew(farm) }
         SyncRunner.log(getApplication()).append("user", listOf(r))
         _state.update {
@@ -265,7 +274,16 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Gets a Drive token for [email]; if Google needs the user, launches its UI first. */
-    private fun withToken(email: String?, block: (String) -> Unit) {
+    /** The saved action as a callback for a fresh token (see [onAuthResult]). */
+    private fun resumeAction(action: String?): ((String) -> Unit)? = when {
+        action == ACTION_LINK -> { token -> finishLink(token) }
+        action == ACTION_SYNC -> { _ -> syncNow() }
+        action?.startsWith(ACTION_DOWNLOAD) == true -> { _ -> downloadFromVault(action.removePrefix(ACTION_DOWNLOAD)) }
+        action?.startsWith(ACTION_MIDDAY) == true -> { _ -> downloadAnyway(action.removePrefix(ACTION_MIDDAY)) }
+        else -> null
+    }
+
+    private fun withToken(email: String?, action: String, block: (String) -> Unit) {
         if (authInFlight) return // one Google request at a time; this one comes back by itself
         authInFlight = true
         viewModelScope.launch {
@@ -277,6 +295,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     is AuthOutcome.NeedsUser -> {
                         afterAuth = block // stays in flight until onAuthResult
+                        saved[KEY_PENDING_AUTH] = action // survives Android closing the app meanwhile
                         _state.update { it.copy(sync = it.sync.copy(pendingAuth = o.intent)) }
                     }
                 }
@@ -288,9 +307,9 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Runs a sync job with an engine bound to the linked vault (refuses a different vault). */
-    private fun withDrive(block: suspend (SyncEngine, Vault) -> Message?) {
+    private fun withDrive(action: String, block: suspend (SyncEngine, Vault) -> Message?) {
         val email = syncPrefs.email ?: return
-        withToken(email) { token ->
+        withToken(email, action) { token ->
             runBusy { fs ->
                 val api = DriveApi(token)
                 val vault = Vault.find(api)
@@ -348,8 +367,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     /** Puts [snapshot] back into its farm folder. All safety rules live in [SaveOps]. */
     fun restore(snapshot: SnapshotMeta) = runBusy { fs ->
         writeOp {
-            val r = ops(fs).restore(snapshot, _state.value.gameVersion)
-            markDeliberate(snapshot.farm)
+            val r = ops(fs).restore(snapshot, _state.value.gameVersion) // deliberate: recorded with the write
             Message.Restored(r.pointerRemoved)
         }
     }
@@ -412,14 +430,12 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
             writeOp {
                 val ops = ops(fs)
                 if (preview.onDevice == null) {
-                    ops.addNew(preview.candidate, _state.value.gameVersion)
-                    markDeliberate(preview.candidate.farm)
+                    ops.addNew(preview.candidate, _state.value.gameVersion, deliberate = true)
                     Message.Imported(isNew = true, pointerRemoved = false)
                 } else {
                     // Replaces exactly the farm the preview showed; if it changed since, nothing is written.
                     val r = ops.replace(preview.candidate, _state.value.gameVersion, SnapshotOrigin.BEFORE_IMPORT,
-                        expectedFingerprint = preview.onDevice.fingerprint)
-                    markDeliberate(preview.candidate.farm)
+                        expectedFingerprint = preview.onDevice.fingerprint, deliberate = true)
                     Message.Imported(isNew = false, pointerRemoved = r.pointerRemoved)
                 }
             }
@@ -532,5 +548,13 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
             }
             _state.update { it.copy(busy = false, message = msg ?: it.message) }
         }
+    }
+
+    companion object {
+        private const val KEY_PENDING_AUTH = "pendingAuth"
+        private const val ACTION_LINK = "link"
+        private const val ACTION_SYNC = "sync"
+        private const val ACTION_DOWNLOAD = "download:"
+        private const val ACTION_MIDDAY = "midday:"
     }
 }

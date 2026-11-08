@@ -228,4 +228,8 @@
     <string name="fail_write">The farm could not be written; it was put back as it was.</string>
     <string name="fail_generic">Something went wrong. It is tried again next time.</string>
     <string name="restore_shared_note">With sync on, this restored day becomes the shared version on all your devices at the next sync.</string>
+    <string name="blocked_invalid_save">Not written: the new files are not a complete, valid save of this farm.</string>
+    <string name="import_malformed">This zip does not contain a complete, valid Stardew save. Nothing was imported.</string>
+    <string name="recovered_kept_current">%1$s: an interrupted write was found, but the farm was played since. It was kept exactly as it is, and a backup was made.</string>
+    <string name="auth_retry">Google sign-in finished, but Android had closed Farm Sync meanwhile. Please tap the action again.</string>
 </resources>

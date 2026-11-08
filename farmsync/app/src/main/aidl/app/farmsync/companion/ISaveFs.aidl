@@ -47,4 +47,8 @@ interface ISaveFs {
 
     // Removes this farm's *.sstmp staging files (never live files).
     void discardStaged(String farm) = 11;
+
+    // Removes <farm>_old or SaveGameInfo_old, only if its md5 is expectedMd5: used to undo a
+    // failed write that added this file. Main files, SaveGameInfo and anything else: refused.
+    void removeIntroducedFile(String farm, String fileName, String expectedMd5) = 12;
 }

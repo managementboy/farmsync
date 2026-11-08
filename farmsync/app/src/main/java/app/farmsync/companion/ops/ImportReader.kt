@@ -1,8 +1,9 @@
 package app.farmsync.companion.ops
 
 import app.farmsync.companion.saves.SaveInfo
-import app.farmsync.companion.saves.SaveInfoParser
-import app.farmsync.companion.saves.XmlRoot
+import app.farmsync.companion.saves.CheckedSave
+import app.farmsync.companion.saves.SaveXml
+import app.farmsync.companion.saves.SaveXmlException
 import app.farmsync.companion.shizuku.SavePaths
 import java.io.File
 import java.io.InputStream
@@ -15,6 +16,8 @@ class ImportException(val reason: Reason, detail: String = reason.name) : Except
         NOT_A_ZIP, NO_FARM_FOLDER, SEVERAL_FARMS, UNSAFE_PATH, MISSING_FILES, ID_MISMATCH, TOO_LARGE,
         /** The same file appears twice, or the save's own version tags disagree. */
         AMBIGUOUS,
+        /** A required file is not a complete, valid Stardew save file. */
+        MALFORMED,
     }
 }
 
@@ -147,28 +150,31 @@ object ImportReader {
                     throw ImportException(ImportException.Reason.MISSING_FILES, farm)
                 }
 
-                val info = SaveInfoParser.parse(File(dir, "SaveGameInfo").readBytes())
-                // R8: the save's own ID, read as a real root element (not from a comment or a
-                // nested element), exactly once, must match the folder name.
-                val id = farm.substringAfterLast('_')
-                val root = XmlRoot.values(XmlRoot.decode(File(dir, farm).readBytes()), setOf("uniqueIDForThisGame", "gameVersion"))
-                val ids = root["uniqueIDForThisGame"].orEmpty()
-                if (ids.size != 1 || ids.single().trim() != id) throw ImportException(ImportException.Reason.ID_MISMATCH, farm)
-                // R6: the main file's version tag wins; it must not contradict the summary.
-                val mainVersions = root["gameVersion"].orEmpty().map { it.trim() }
-                if (mainVersions.size > 1) throw ImportException(ImportException.Reason.AMBIGUOUS, "gameVersion")
-                val mainVersion = mainVersions.singleOrNull()
-                if (mainVersion != null && info.gameVersion.isNotEmpty() && mainVersion != info.gameVersion.trim()) {
-                    throw ImportException(ImportException.Reason.AMBIGUOUS, "$mainVersion / ${info.gameVersion}")
-                }
+                // R8 + R6: both files complete and well-formed with the right root, exactly one
+                // real ID matching the folder, and version tags that agree (see SaveXml).
+                val checked = checkSave(farm, dir!!)
                 entries.filter { it !in relevant }.forEach { ignored += it.name }
-                return ImportCandidate(farm, info, dir!!, md5s, ignored, mainVersion ?: info.gameVersion)
+                return ImportCandidate(farm, checked.info, dir!!, md5s, ignored, checked.gameVersion)
             }
         } catch (e: Exception) {
             dir?.deleteRecursively() // no partial staging left behind
             throw e
         }
     }
+}
+
+/** [SaveXml.check] with its reasons mapped to import reasons. */
+internal fun checkSave(farm: String, dir: File): CheckedSave = try {
+    SaveXml.check(farm, dir)
+} catch (e: SaveXmlException) {
+    throw ImportException(
+        when {
+            e.message == "id" -> ImportException.Reason.ID_MISMATCH
+            e.message.orEmpty().startsWith("version") -> ImportException.Reason.AMBIGUOUS
+            else -> ImportException.Reason.MALFORMED
+        },
+        farm,
+    )
 }
 
 internal fun md5Of(f: File): String {

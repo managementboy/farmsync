@@ -20,6 +20,8 @@ interface SaveFs {
     /** Renames staged files over the live ones in [fileNames] order. */
     fun commit(farm: String, fileNames: List<String>)
     fun discardStaged(farm: String)
+    /** Removes an `_old` file a failed write added, only if it still has [md5]. */
+    fun removeIntroducedFile(farm: String, fileName: String, md5: String)
     fun removeMiddayPointer(farm: String): Boolean
     fun createFarmFolder(farm: String)
 }
@@ -33,6 +35,7 @@ class AidlSaveFs(private val s: ISaveFs) : SaveFs {
         ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY).use { s.stageFile(farm, fileName, it, md5) }
     override fun commit(farm: String, fileNames: List<String>) = s.commitStaged(farm, fileNames.toTypedArray())
     override fun discardStaged(farm: String) = s.discardStaged(farm)
+    override fun removeIntroducedFile(farm: String, fileName: String, md5: String) = s.removeIntroducedFile(farm, fileName, md5)
     override fun removeMiddayPointer(farm: String): Boolean = s.removeMiddayPointer(farm)
     override fun createFarmFolder(farm: String) = s.createFarmFolder(farm)
 }

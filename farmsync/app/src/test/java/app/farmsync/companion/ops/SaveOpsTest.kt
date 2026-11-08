@@ -151,9 +151,10 @@ class SaveOpsTest {
         // The player saves after the safety snapshot, while the new files are being staged.
         val ops = SaveOps(d.fs, d.store, d.temp, d.journal)
         val source = object : FileSource by SnapshotSource(d.store, target) {
-            var once = true
+            var calls = 0
             override fun copyTo(name: String, dest: java.io.File): String {
-                if (once) { once = false; d.fs.writeFarm(farm, day = 6, playedMs = 6000) }
+                // Calls 1–2 are the validity check; the 3rd is staging, after the safety snapshot.
+                if (++calls == 3) d.fs.writeFarm(farm, day = 6, playedMs = 6000)
                 return SnapshotSource(d.store, target).copyTo(name, dest)
             }
         }
@@ -180,8 +181,7 @@ class SaveOpsTest {
         assertBlocked(OpBlocked.Reason.GAME_VERSION_UNKNOWN) { ops(d).restore(target, null) }
         assertBlocked(OpBlocked.Reason.GAME_VERSION_UNKNOWN) { ops(d).restore(target, "unknown") }
         assertBlocked(OpBlocked.Reason.NEWER_GAME_VERSION) { ops(d).restore(target, "1.6.15") }
-        val noVersion = target.copy(info = target.info!!.copy(gameVersion = ""))
-        assertBlocked(OpBlocked.Reason.GAME_VERSION_UNKNOWN) { ops(d).restore(noVersion, v) }
+        // The index's version is not what counts (see restoreChecksTheVersionInTheActualFiles…).
     }
 
     @Test
@@ -218,6 +218,127 @@ class SaveOpsTest {
         try { ops(d).addNew(SnapshotSource(src.store, snap), v); fail() } catch (_: OpFailed) {}
         assertNull(d.fs.farm(farm))
         assertFalse(d.journal.has(farm))
+    }
+
+    // ---------------------------------------------------------------- re-check 0.10.0 (R01–R05)
+
+    @Test
+    fun aDayPlayedAfterAnInterruptedWriteIsKept() {
+        val d = device()
+        val target = day9(d)
+        d.fs.killAfterRenames = 2 // both files in place, journal not cleared yet
+        try { ops(d).restore(target, v); fail() } catch (_: Killed) {}
+        d.fs.writeFarm(farm, day = 10, playedMs = 10_000) // the player plays on before reopening Farm Sync
+        val played = fp(d)
+        assertEquals(Recovery.KEPT_CURRENT, ops(d).recover(d.journal.get(farm)!!))
+        assertEquals(played, fp(d))
+        assertFalse(d.journal.has(farm))
+        assertEquals(played, d.store.latest(farm)!!.fingerprint) // and it was backed up
+    }
+
+    @Test
+    fun aMixedStateFromAnInterruptionIsStillRolledBack() {
+        val d = device()
+        val before = fp(d)
+        val target = day9(d)
+        d.fs.killAfterRenames = 1
+        try { ops(d).restore(target, v); fail() } catch (_: Killed) {}
+        assertEquals(Recovery.ROLLED_BACK, ops(d).recover(d.journal.get(farm)!!))
+        assertEquals(before, fp(d))
+    }
+
+    @Test
+    fun aNewFarmPlayedAfterAnInterruptedDownloadIsNeverOverwritten() {
+        val d = Device(tmp.root, "tablet")
+        val src = Device(tmp.root, "src").apply { fs.writeFarm(farm, day = 3, playedMs = 3000) }
+        val snap = src.store.create(src.fs, src.fs.farm(farm)!!, SnapshotOrigin.MANUAL)
+        d.fs.killAfterRenames = 1
+        try { ops(d).addNew(SnapshotSource(src.store, snap), v); fail() } catch (_: Killed) {}
+        d.fs.writeFarm(farm, day = 4, playedMs = 4000) // the game used the folder meanwhile
+        val played = fp(d)
+        val retry = runCatching { ops(d).addNew(SnapshotSource(src.store, snap), v) }.exceptionOrNull()
+        assertEquals(OpBlocked.Reason.FARM_EXISTS, (retry as OpBlocked).reason)
+        assertEquals(Recovery.KEPT_CURRENT, ops(d).recover(d.journal.get(farm)!!))
+        assertEquals(played, fp(d))
+    }
+
+    @Test
+    fun rollbackRemovesOnlyOptionalFilesIntroducedByTheFailedWrite() {
+        val d = device()
+        val other = Device(tmp.root, "other").apply {
+            fs.writeFarm(farm, day = 9, playedMs = 9000)
+            fs.file(farm, "${farm}_old").writeText("old main from the other device")
+            fs.file(farm, "SaveGameInfo_old").writeText("old summary from the other device")
+        }
+        val snap = other.store.create(other.fs, other.fs.farm(farm)!!, SnapshotOrigin.MANUAL)
+        d.fs.file(farm, "SaveGameInfo_old").writeText("this device's own old summary") // exists before
+        val keptOld = d.fs.file(farm, "SaveGameInfo_old").readText()
+        val before = fp(d)
+        d.fs.failAfterRenames = 3 // main, main_old, SaveGameInfo_old renamed; SaveGameInfo fails
+        try {
+            ops(d).replace(SnapshotSource(other.store, snap), v, SnapshotOrigin.BEFORE_IMPORT); fail()
+        } catch (e: OpFailed) {
+            assertTrue(e.rolledBack)
+        }
+        assertEquals(before, fp(d))
+        assertFalse("added by the failed write", d.fs.file(farm, "${farm}_old").exists())
+        assertEquals(keptOld, d.fs.file(farm, "SaveGameInfo_old").readText())
+    }
+
+    @Test
+    fun restoreChecksTheVersionInTheActualFilesNotTheIndex() {
+        val d = device()
+        // A snapshot whose summary has no version tag (an old save) but whose main file is 1.6.15.3.
+        val other = Device(tmp.root, "other").apply { fs.writeFarm(farm, day = 9, playedMs = 9000) }
+        other.fs.file(farm, "SaveGameInfo").writeText(
+            app.farmsync.companion.testing.FakeSaveFs.infoXml("1.6.15.3", 9, 9000).replace("<gameVersion>1.6.15.3</gameVersion>", ""))
+        val snap = other.store.create(other.fs, other.fs.farm(farm)!!, SnapshotOrigin.MANUAL)
+        assertEquals("", snap.info!!.gameVersion)
+        assertBlocked(OpBlocked.Reason.NEWER_GAME_VERSION) {
+            ops(d).replace(SnapshotSource(other.store, snap), "1.6.15", SnapshotOrigin.BEFORE_RESTORE)
+        }
+        // Contradicting tags (index says 1.6.15, the main file 1.6.15.3): never written either.
+        other.fs.writeFarm(farm, day = 9, playedMs = 9000, version = "1.6.15")
+        other.fs.file(farm, farm).writeText(app.farmsync.companion.testing.FakeSaveFs.mainXml("123", "1.6.15.3", 9))
+        val mixed = other.store.create(other.fs, other.fs.farm(farm)!!, SnapshotOrigin.MANUAL)
+        assertEquals("1.6.15", mixed.info!!.gameVersion)
+        assertBlocked(OpBlocked.Reason.INVALID_SAVE) {
+            ops(d).replace(SnapshotSource(other.store, mixed), "1.6.15", SnapshotOrigin.BEFORE_RESTORE)
+        }
+        assertEquals(0, d.fs.commits)
+    }
+
+    @Test
+    fun brokenSaveFilesAreNeverWritten() {
+        val d = device()
+        val other = Device(tmp.root, "other").apply { fs.writeFarm(farm, day = 9, playedMs = 9000) }
+        other.fs.file(farm, farm).writeText("<WrongRoot><uniqueIDForThisGame>123</uniqueIDForThisGame>")
+        val snap = other.store.create(other.fs, other.fs.farm(farm)!!, SnapshotOrigin.MANUAL)
+        assertBlocked(OpBlocked.Reason.INVALID_SAVE) { ops(d).replace(SnapshotSource(other.store, snap), v, SnapshotOrigin.BEFORE_RESTORE) }
+        assertEquals(0, d.fs.commits)
+    }
+
+    @Test
+    fun aDeliberateRestoreKeepsItsSyncIntentThroughACrash() {
+        val d = device()
+        val target = day9(d)
+        val marked = mutableListOf<String>()
+        val ops = SaveOps(d.fs, d.store, d.temp, d.journal, onDeliberate = { marked += it })
+        d.fs.killAfterRenames = 2 // written, but the app dies before anything else happens
+        try { ops.restore(target, v); fail() } catch (_: Killed) {}
+        assertTrue(marked.isEmpty())
+        assertEquals(Recovery.COMPLETED, ops.recover(d.journal.get(farm)!!))
+        assertEquals(listOf(farm), marked)
+    }
+
+    @Test
+    fun aSyncDownloadIsNotADeliberateWrite() {
+        val d = device()
+        val target = day9(d)
+        val marked = mutableListOf<String>()
+        SaveOps(d.fs, d.store, d.temp, d.journal, onDeliberate = { marked += it })
+            .replace(SnapshotSource(d.store, target), v, SnapshotOrigin.BEFORE_SYNC)
+        assertTrue(marked.isEmpty())
     }
 
     private fun assertBlocked(reason: OpBlocked.Reason, block: () -> Unit) {

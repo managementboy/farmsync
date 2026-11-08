@@ -19,6 +19,11 @@ data class JournalEntry(
     /** md5 of each standard file the write puts in place. */
     val targetMd5: Map<String, String>,
     val startedAt: Long,
+    /**
+     * A restore or import the user chose: once the write is complete (now or in recovery),
+     * the next sync makes it the shared version. Stored here so a crash can't lose it.
+     */
+    val deliberate: Boolean = false,
 ) {
     enum class Kind { REPLACE, NEW_FARM }
 
@@ -27,6 +32,7 @@ data class JournalEntry(
         .put("beforeSnapshot", beforeSnapshot ?: JSONObject.NULL)
         .put("beforeMd5", JSONObject(beforeMd5))
         .put("targetMd5", JSONObject(targetMd5)).put("startedAt", startedAt)
+        .put("deliberate", deliberate)
 
     companion object {
         fun fromJson(o: JSONObject) = JournalEntry(
@@ -36,6 +42,7 @@ data class JournalEntry(
             beforeMd5 = o.getJSONObject("beforeMd5").toStringMap(),
             targetMd5 = o.getJSONObject("targetMd5").toStringMap(),
             startedAt = o.getLong("startedAt"),
+            deliberate = o.optBoolean("deliberate", false),
         )
 
         private fun JSONObject.toStringMap() = keys().asSequence().associateWith { getString(it) }

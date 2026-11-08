@@ -405,6 +405,7 @@ fun messageText(m: Message): String = when (m) {
             OpBlocked.Reason.CHANGED -> R.string.blocked_changed
             OpBlocked.Reason.MIDDAY -> R.string.blocked_midday
             OpBlocked.Reason.NEEDS_REPAIR -> R.string.blocked_needs_repair
+            OpBlocked.Reason.INVALID_SAVE -> R.string.blocked_invalid_save
         }
     )
     is Message.ImportRejected -> stringResource(
@@ -417,12 +418,14 @@ fun messageText(m: Message): String = when (m) {
             ImportException.Reason.ID_MISMATCH -> R.string.import_id_mismatch
             ImportException.Reason.TOO_LARGE -> R.string.import_too_large
             ImportException.Reason.AMBIGUOUS -> R.string.import_ambiguous
+            ImportException.Reason.MALFORMED -> R.string.import_malformed
         }
     )
     is Message.DriveLinked -> stringResource(if (m.newVault) R.string.drive_linked_new else R.string.drive_linked, m.email)
     Message.VaultMismatch -> stringResource(R.string.vault_mismatch)
     Message.ShizukuMissing -> stringResource(R.string.shizuku_not_running)
     is Message.SyncDone -> syncDoneText(m)
+    Message.AuthRetry -> stringResource(R.string.auth_retry)
     is Message.Recovered -> m.items.map { (farm, r) ->
         val name = farm.substringBeforeLast('_')
         when (r) {
@@ -431,6 +434,7 @@ fun messageText(m: Message): String = when (m) {
             Recovery.WAITING_FOR_GAME -> stringResource(R.string.recovered_waiting, name)
             Recovery.INCOMPLETE_NEW_FARM -> stringResource(R.string.recovered_incomplete_new, name)
             Recovery.NEEDS_HELP -> stringResource(R.string.recovered_needs_help, name, m.since[farm]?.let { dateTime(it) } ?: "?")
+            Recovery.KEPT_CURRENT -> stringResource(R.string.recovered_kept_current, name)
             Recovery.NOTHING_CHANGED -> ""
         }
     }.filter { it.isNotEmpty() }.joinToString("\n")

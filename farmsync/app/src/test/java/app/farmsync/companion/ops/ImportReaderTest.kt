@@ -115,6 +115,24 @@ class ImportReaderTest {
     }
 
     @Test
+    fun rejectsBrokenOrForeignXml() {
+        val cases = listOf(
+            "<WrongRoot><uniqueIDForThisGame>123</uniqueIDForThisGame>", // no closing root, wrong root
+            "<SaveGame><uniqueIDForThisGame>123</uniqueIDForThisGame>", // truncated
+            "<SaveGame><uniqueIDForThisGame>123</uniqueIDForThisGame></Other>", // mismatched closing tag
+            "<!DOCTYPE x [<!ENTITY e \"123\">]><SaveGame><uniqueIDForThisGame>&e;</uniqueIDForThisGame></SaveGame>",
+        )
+        for (main in cases) {
+            val r = reason(zip("F_123/F_123" to main, "F_123/SaveGameInfo" to info))
+            assertTrue("$main -> $r", r == ImportException.Reason.MALFORMED)
+        }
+        assertEquals(ImportException.Reason.MALFORMED,
+            reason(zip("F_123/F_123" to main("123"), "F_123/SaveGameInfo" to "<Farmer><name>x</name>")))
+        assertEquals(ImportException.Reason.MALFORMED,
+            reason(zip("F_123/F_123" to main("123"), "F_123/SaveGameInfo" to "<SaveGame></SaveGame>")))
+    }
+
+    @Test
     fun rejectsNonZip() {
         val f = tmp.newFile().apply { writeText("not a zip") }
         assertEquals(ImportException.Reason.NOT_A_ZIP, reason(f))

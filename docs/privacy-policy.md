@@ -1,12 +1,12 @@
 # Farm Sync – Privacy Policy
 
-*Last updated: 8 November 2026 (version 0.10)*
+*Last updated: 8 November 2026 (version 0.10.1)*
 
 Farm Sync is a free, open-source Android app that backs up and synchronises save files of the game *Stardew Valley* between your own devices. It is a hobby project by Elkin Fricke and is not affiliated with or endorsed by ConcernedApe, Chucklefish or Google.
 
 ## What data the app handles
 
-- **Your Stardew Valley save files** on the device where the app is installed: the game's own files in its `Saves` folder. The app reads them to show your farms and to make backups. It writes them back when you restore a backup or import a farm (after you confirm), and, if you linked Google Drive, automatically whenever you open the app and another of your devices has a newer day of a farm. Every farm syncs by default once Drive is linked; you can switch sync off per farm. Before any write the app makes a verified backup on the device.
+- **Your Stardew Valley save files** on the device where the app is installed: the game's own files in its `Saves` folder. The app reads them to show your farms and to make backups. It writes them back when you restore a backup or import a farm (after you confirm), and, if you linked Google Drive, automatically whenever you open the app and another of your devices has a newer day of a farm. Every farm syncs by default once Drive is linked; you can switch sync off per farm. If the same farm was played on two devices since the last sync, the version with more play time continues (even if its in-game date is earlier); the other one stays in your Drive and as a backup on its device. Before any write the app makes a verified backup on the device.
 - **Backups ("snapshots")** of those save files, stored in the app's private storage on your device.
 - **Google Drive (optional):** if you turn on sync, the app stores copies of your save files in a folder it creates in **your own** Google Drive.
 - **Your Google account e-mail address:** shown in the app so you can see which Drive account sync uses.

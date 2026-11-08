@@ -37,7 +37,7 @@ interface VersionVault {
  * manifest.json) are read too and migrated once, without deleting anything.
  */
 class Vault private constructor(
-    private val api: DriveApi,
+    private val api: DriveClient,
     val folderId: String,
     val vaultId: String,
 ) : VersionVault {
@@ -81,36 +81,43 @@ class Vault private constructor(
     }
 
     /**
-     * Moves a 0.9.x manifest's history onto the zips' own properties. Idempotent: every device
-     * computes the same properties, and the manifest is marked as done (never deleted).
+     * Moves a 0.9.x manifest's history onto the zips' own properties. Idempotent and resumable:
+     * every device computes the same properties, and a manifest is marked done only after every
+     * old zip in the farm has its properties, so an interruption at any point is picked up on
+     * the next sync. Nothing is deleted.
      */
     private fun migrateLegacy(folders: List<String>) {
+        val zips = api.query("(${inAny(folders)}) and trashed=false and mimeType='application/zip'")
+        val untagged = zips.filter { PROP_VERSION_LEGACY in it.appProperties && VersionProps.MARK !in it.appProperties }
         val manifests = api.query("(${inAny(folders)}) and trashed=false and appProperties has {key='$PROP_FILE' and value='manifest'}")
-            .filter { it.appProperties[PROP_MIGRATED] != MIGRATED }
-        if (manifests.isEmpty()) return
-        // Drive can only match a property together with its value, so filter by key here.
-        val legacyZips = api.query("(${inAny(folders)}) and trashed=false and mimeType='application/zip'")
-            .filter { PROP_VERSION_LEGACY in it.appProperties }
-        val done = HashSet<String>()
-        for (m in manifests) {
+        val open = manifests.filter { it.appProperties[PROP_MIGRATED] != MIGRATED }
+        if (untagged.isEmpty() && open.isEmpty()) return
+
+        // Ids already in use (from earlier, possibly interrupted runs) are never given out twice.
+        val used = zips.mapNotNull { z -> z.appProperties["id"].takeIf { VersionProps.MARK in z.appProperties } }.toHashSet()
+        val inManifest = HashSet<String>()
+        for (m in manifests) { // all of them, also those marked done, to know which zips they describe
             val legacy = LegacyManifest.fromJson(JSONObject(api.downloadText(m.id)))
             for (v in LegacyManifest.toVersions(legacy)) {
-                val zip = legacyZips.firstOrNull { it.id == v.fileId } ?: continue
-                if (VersionProps.MARK in zip.appProperties || !done.add(v.id)) continue
-                api.updateAppProperties(v.fileId, VersionProps.encode(v))
+                inManifest += v.fileId
+                val zip = untagged.firstOrNull { it.id == v.fileId } ?: continue
+                // The same save in two zips (two folders from an old race): both stay listed.
+                val entry = if (used.add(v.id)) v else v.copy(id = VersionEntry.newId(), lost = true).also { used += it.id }
+                api.updateAppProperties(zip.id, VersionProps.encode(entry))
             }
-            api.updateAppProperties(m.id, mapOf(PROP_MIGRATED to MIGRATED))
         }
         // Zips no manifest knew about (lost by an old overlapping write): kept, marked lost.
-        for (z in legacyZips) {
-            if (VersionProps.MARK in z.appProperties) continue
-            val fp = z.appProperties[PROP_VERSION_LEGACY] ?: continue
-            val id = LegacyManifest.migratedId(fp)
-            if (!done.add(id)) continue
+        for (z in untagged) {
+            if (z.id in inManifest) continue
+            val fp = z.appProperties.getValue(PROP_VERSION_LEGACY)
+            var id = LegacyManifest.migratedId(fp)
+            if (id in used) id = VersionEntry.newId() // same save as a known version: still listed
+            used += id
             api.updateAppProperties(z.id, VersionProps.encode(
                 VersionEntry(id, fp, z.id, emptyList(), "", "", 0L, 0L, null, lost = true)
             ))
         }
+        open.forEach { api.updateAppProperties(it.id, mapOf(PROP_MIGRATED to MIGRATED)) }
     }
 
     private fun inAny(folders: List<String>) = folders.joinToString(" or ") { "'$it' in parents" }
@@ -134,7 +141,7 @@ class Vault private constructor(
          * Finds the vault in the account. Several vaults (should not happen) → the oldest one.
          * Returns null if there is none; creating one is a separate, confirmed step.
          */
-        fun find(api: DriveApi): Vault? {
+        fun find(api: DriveClient): Vault? {
             val folder = api.query(
                 "mimeType='${DriveApi.FOLDER}' and appProperties has {key='$PROP_ROOT' and value='vault'} and trashed=false"
             ).minByOrNull { it.createdTime } ?: return null
@@ -143,14 +150,16 @@ class Vault private constructor(
             return Vault(api, folder.id, info?.optString("vaultId").orEmpty().ifEmpty { folder.id })
         }
 
-        fun create(api: DriveApi): Vault {
+        fun create(api: DriveClient): Vault {
             val folder = api.createFolder(NAME, null, mapOf(PROP_ROOT to "vault"))
             val vaultId = UUID.randomUUID().toString()
             val json = JSONObject().put("vaultId", vaultId).put("created", System.currentTimeMillis())
                 .put("app", "Farm Sync").put("format", 2)
             api.upload("vault.json", folder.id, "application/json", json.toString(1).toByteArray(),
                 mapOf(PROP_FILE to "vault"))
-            return Vault(api, folder.id, vaultId)
+            // If another device created a vault at the same moment, both now pick the oldest one,
+            // so they always end up in the same vault (ours stays empty).
+            return find(api) ?: Vault(api, folder.id, vaultId)
         }
     }
 }

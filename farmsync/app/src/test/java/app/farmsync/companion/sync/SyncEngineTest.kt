@@ -111,6 +111,43 @@ class SyncEngineTest {
     }
 
     @Test
+    fun afterIdenticalUploadsPlayOnOneDeviceIsAnOrdinaryUpload() {
+        shared()
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        tablet.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        val before = vault.all.toList()
+        sync(phone)
+        vault.staleOnce = before
+        sync(tablet) // two uploads of the same save
+        tablet.fs.writeFarm(farm, day = 7, playedMs = 7000) // only the tablet plays on
+        assertEquals(Outcome.UPLOADED, sync(tablet).outcome)
+        assertEquals(Outcome.DOWNLOADED, sync(phone).outcome)
+        assertEquals(7, day(phone))
+    }
+
+    @Test
+    fun aRestoreBeatsManyCopiesOfTheSameSave() {
+        shared()
+        tablet.fs.writeFarm(farm, day = 9, playedMs = 9000)
+        sync(tablet)
+        // Seven devices' worth of identical uploads of day 9, all ends of history.
+        val day9 = vault.all.last()
+        repeat(7) { i ->
+            vault.upload(farm, day9.copy(id = "copy$i", deviceId = "dev$i"), vault.zipOf(day9))
+        }
+        sync(phone)
+        assertEquals(9, day(phone))
+        val old = phone.store.list(farm).first { it.info?.day == 5 }
+        app.farmsync.companion.ops.SaveOps(phone.fs, phone.store, phone.temp, phone.journal).restore(old, "1.6.15.3")
+        phone.state.setForced(farm, true)
+        assertEquals(Outcome.UPLOADED, sync(phone).outcome)
+        assertEquals(5, day(phone))
+        assertEquals(5, head().info!!.day)
+        assertEquals(Outcome.DOWNLOADED, sync(tablet).outcome)
+        assertEquals(5, day(tablet))
+    }
+
+    @Test
     fun identicalSaveAlreadyInTheVaultIsUpToDate() {
         shared()
         phone.fs.writeFarm(farm, day = 6, playedMs = 6000)

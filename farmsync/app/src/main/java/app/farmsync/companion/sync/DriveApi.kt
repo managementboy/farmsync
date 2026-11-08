@@ -22,16 +22,27 @@ data class DriveFile(
     val appProperties: Map<String, String>,
 )
 
+/** The Drive calls the vault uses; an interface so the vault logic can be tested offline. */
+interface DriveClient {
+    fun query(q: String): List<DriveFile>
+    fun createFolder(name: String, parent: String?, appProperties: Map<String, String>): DriveFile
+    fun upload(name: String, parent: String, mime: String, content: ByteArray, appProperties: Map<String, String>): DriveFile
+    fun upload(name: String, parent: String, mime: String, content: File, appProperties: Map<String, String>): DriveFile
+    fun updateAppProperties(fileId: String, appProperties: Map<String, String?>)
+    fun downloadText(fileId: String): String
+    fun downloadTo(fileId: String, dest: File, maxBytes: Long)
+}
+
 /**
  * Minimal Google Drive v3 REST client (no extra libraries). With the drive.file scope every
  * query only ever sees files this app created.
  */
-class DriveApi(private val token: String) {
+class DriveApi(private val token: String) : DriveClient {
 
     fun aboutEmail(): String =
         JSONObject(get("$API/about?fields=user(emailAddress)")).getJSONObject("user").getString("emailAddress")
 
-    fun query(q: String): List<DriveFile> {
+    override fun query(q: String): List<DriveFile> {
         val out = mutableListOf<DriveFile>()
         var pageToken: String? = null
         do {
@@ -46,7 +57,7 @@ class DriveApi(private val token: String) {
         return out
     }
 
-    fun createFolder(name: String, parent: String?, appProperties: Map<String, String>): DriveFile {
+    override fun createFolder(name: String, parent: String?, appProperties: Map<String, String>): DriveFile {
         val meta = JSONObject()
             .put("name", name)
             .put("mimeType", FOLDER)
@@ -57,7 +68,7 @@ class DriveApi(private val token: String) {
     }
 
     /** Creates a new file with content in one multipart request. */
-    fun upload(name: String, parent: String, mime: String, content: ByteArray, appProperties: Map<String, String>): DriveFile {
+    override fun upload(name: String, parent: String, mime: String, content: ByteArray, appProperties: Map<String, String>): DriveFile {
         val tmp = File.createTempFile("upload", null)
         return try {
             tmp.writeBytes(content)
@@ -68,7 +79,7 @@ class DriveApi(private val token: String) {
     }
 
     /** Creates a new file, streaming [content] from disk (never held in memory as a whole). */
-    fun upload(name: String, parent: String, mime: String, content: File, appProperties: Map<String, String>): DriveFile {
+    override fun upload(name: String, parent: String, mime: String, content: File, appProperties: Map<String, String>): DriveFile {
         val meta = JSONObject().put("name", name).put("parents", JSONArray().put(parent))
             .put("appProperties", JSONObject(appProperties))
         val boundary = "farmsync" + System.nanoTime()
@@ -91,7 +102,7 @@ class DriveApi(private val token: String) {
     }
 
     /** Sets (or with a null value removes) app properties of a file; other properties stay. */
-    fun updateAppProperties(fileId: String, appProperties: Map<String, String?>) {
+    override fun updateAppProperties(fileId: String, appProperties: Map<String, String?>) {
         val props = JSONObject().apply { appProperties.forEach { (k, v) -> put(k, v ?: JSONObject.NULL) } }
         send("PATCH", "$API/files/$fileId?fields=id", "application/json",
             JSONObject().put("appProperties", props).toString().toByteArray())
@@ -101,10 +112,10 @@ class DriveApi(private val token: String) {
         send("PATCH", "$UPLOAD/files/$fileId?uploadType=media&fields=id", mime, content)
     }
 
-    fun downloadText(fileId: String): String = get("$API/files/$fileId?alt=media")
+    override fun downloadText(fileId: String): String = get("$API/files/$fileId?alt=media")
 
     /** Downloads at most [maxBytes]; a larger file fails before it can fill the device. */
-    fun downloadTo(fileId: String, dest: File, maxBytes: Long) {
+    override fun downloadTo(fileId: String, dest: File, maxBytes: Long) {
         open("GET", "$API/files/$fileId?alt=media", null, null).use { input ->
             var total = 0L
             dest.outputStream().use { out ->

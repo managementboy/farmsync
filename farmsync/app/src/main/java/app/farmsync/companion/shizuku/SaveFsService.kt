@@ -108,7 +108,9 @@ class SaveFsService : ISaveFs.Stub() {
                     try {
                         Os.fchmod(out.fd, "666".toInt(8))
                     } catch (_: ErrnoException) {
-                        Os.chmod(tmp.path, "666".toInt(8)) // created just now with O_EXCL, so not a link
+                        // Created just now with O_EXCL; still re-checked to be a plain file.
+                        check(isRealFile(tmp)) { "Staging file was replaced" }
+                        Os.chmod(tmp.path, "666".toInt(8))
                     }
                 }
             }
@@ -137,6 +139,16 @@ class SaveFsService : ISaveFs.Stub() {
     override fun discardStaged(farm: String) {
         val dir = farmDir(farm)
         SavePaths.stageable(farm).forEach { unlinkIfPresent(File(dir, SavePaths.stagingName(it))) }
+    }
+
+    override fun removeIntroducedFile(farm: String, fileName: String, expectedMd5: String) {
+        val dir = farmDir(farm)
+        require(fileName == "${farm}_old" || fileName == "SaveGameInfo_old") { "Only _old files" }
+        val f = File(dir, fileName)
+        check(isRealFile(f)) { "$fileName is not a file" }
+        check(!isGameRunning()) { "Stardew is running" }
+        check(md5("$farm/$fileName") == expectedMd5) { "$fileName changed" }
+        Os.remove(f.path)
     }
 
     override fun removeMiddayPointer(farm: String): Boolean {

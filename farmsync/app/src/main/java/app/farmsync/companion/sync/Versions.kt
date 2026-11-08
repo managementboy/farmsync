@@ -69,13 +69,17 @@ object VersionGraph {
 object VersionProps {
     const val MARK = "fsv"
     const val FORMAT = "2"
-    private const val MAX_PARENTS = 6
+    /** Parent ids per property (6 × 16 + 5 commas fits the limit) and properties for them. */
+    private const val PER_KEY = 6
+    private const val PARENT_KEYS = 12
+    const val MAX_PARENTS = PER_KEY * PARENT_KEYS
 
     fun encode(v: VersionEntry): Map<String, String> = buildMap {
         put(MARK, FORMAT)
         put("id", v.id)
         put("fp", v.fingerprint)
-        if (v.parents.isNotEmpty()) put("par", v.parents.take(MAX_PARENTS).joinToString(","))
+        require(v.parents.size <= PER_KEY * PARENT_KEYS) { "Too many parents" }
+        v.parents.chunked(PER_KEY).forEachIndexed { i, ids -> put(parentKey(i), ids.joinToString(",")) }
         put("dev", v.deviceId.take(40))
         put("dn", fit("dn", v.deviceName))
         put("t", v.created.toString())
@@ -103,12 +107,14 @@ object VersionProps {
         } else null
         return VersionEntry(
             id = id, fingerprint = fp, fileId = fileId,
-            parents = p["par"]?.split(',')?.filter { it.isNotBlank() }.orEmpty(),
+            parents = (0 until PARENT_KEYS).flatMap { i -> p[parentKey(i)]?.split(',').orEmpty() }.filter { it.isNotBlank() },
             deviceId = p["dev"].orEmpty(), deviceName = p["dn"].orEmpty(),
             created = p["t"]?.toLongOrNull() ?: 0L, savedAt = p["sa"]?.toLongOrNull() ?: 0L,
             info = info, lost = p["lost"] == "1",
         )
     }
+
+    private fun parentKey(i: Int) = if (i == 0) "par" else "par$i"
 
     /** Cuts [value] so that key + value fit Drive's 124-byte limit, never inside a character. */
     fun fit(key: String, value: String, limit: Int = 124): String {

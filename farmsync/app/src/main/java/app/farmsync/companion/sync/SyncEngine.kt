@@ -78,6 +78,7 @@ class SyncEngine(
         val head = VersionGraph.head(vault.versions(farm)) ?: return FarmSyncResult(farm, Outcome.FAILED, detail = "no_version")
         return try {
             ops.addNew(fetch(head, farm), installedGameVersion)
+                .also { File(tempDir, "sync").deleteRecursively() }
             state.setBase(farm, head.id)
             state.setEnabled(farm, true)
             FarmSyncResult(farm, Outcome.DOWNLOADED, remote = head)
@@ -94,9 +95,18 @@ class SyncEngine(
      */
     private fun push(local: Farm, versions: List<VersionEntry>, base: String?, forced: Boolean): FarmSyncResult {
         val farm = local.folder
-        // A deliberate restore replaces every current line of play; normal play continues from the base.
-        val parents = if (forced) (VersionGraph.tips(versions).map { it.id } + listOfNotNull(base)).distinct()
-        else listOfNotNull(base)
+        // Continues from the base and from every other upload of the very same save (two devices
+        // that uploaded identical saves are one point in history, not two lines of play).
+        val baseFp = versions.firstOrNull { it.id == base }?.fingerprint
+        val equivalent = versions.filter { baseFp != null && it.fingerprint == baseFp }.map { it.id }
+        val tips = VersionGraph.tips(versions).filter { !it.lost }
+        if (forced) {
+            // A deliberate restore replaces every current line of play: they are marked first, so
+            // the restore wins even if not all of them fit into its parent list.
+            tips.forEach { runCatching { vault.markLost(it) } }
+        }
+        val parents = (listOfNotNull(base) + equivalent + if (forced) tips.map { it.id } else emptyList())
+            .distinct().take(VersionProps.MAX_PARENTS)
         // An upload of exactly this that an interrupted run left behind is reused, not repeated.
         val mine = versions.firstOrNull { it.deviceId == me && it.fingerprint == local.fingerprint && it.parents == parents }
             ?: upload(local, parents)
@@ -121,6 +131,15 @@ class SyncEngine(
     private fun pull(local: Farm, head: VersionEntry, allowMidday: Boolean): FarmSyncResult {
         val farm = local.folder
         if (local.midday && !allowMidday) return FarmSyncResult(farm, Outcome.WAITING_MIDDAY, remote = head)
+        return try {
+            pullNow(local, head, allowMidday)
+        } finally {
+            File(tempDir, "sync").deleteRecursively() // no downloaded copy left behind (F14)
+        }
+    }
+
+    private fun pullNow(local: Farm, head: VersionEntry, allowMidday: Boolean): FarmSyncResult {
+        val farm = local.folder
         return try {
             val candidate = fetch(head, farm)
             // The farm must still be what this decision was based on (F3): if it was played

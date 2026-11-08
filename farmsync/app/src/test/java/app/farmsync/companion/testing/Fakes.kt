@@ -9,6 +9,7 @@ import app.farmsync.companion.store.SnapshotStore
 import app.farmsync.companion.sync.SyncState
 import app.farmsync.companion.sync.VersionEntry
 import app.farmsync.companion.sync.VersionVault
+import app.farmsync.companion.sync.VersionProps
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -81,6 +82,16 @@ class FakeSaveFs(val root: File) : SaveFs {
             check(tmp.isFile) { "Not staged: $name" }
             check(tmp.renameTo(File(dir(farm), name)))
         }
+        if (killAfterRenames == fileNames.size) { killAfterRenames = null; throw Killed() }
+        if (failAfterRenames == fileNames.size) { failAfterRenames = null; error("disk error") }
+    }
+
+    override fun removeIntroducedFile(farm: String, fileName: String, md5: String) {
+        require(fileName == "${farm}_old" || fileName == "SaveGameInfo_old")
+        check(!gameRunning)
+        val f = File(dir(farm), fileName)
+        check(md5(f) == md5)
+        check(f.delete())
     }
 
     override fun discardStaged(farm: String) {
@@ -185,16 +196,19 @@ class FakeVault(private val dir: File) : VersionVault {
     override fun upload(farm: String, v: VersionEntry, zip: File): VersionEntry {
         val fileId = "file${n++}"
         zip.copyTo(File(dir, fileId))
-        val stored = v.copy(fileId = fileId)
+        // Through the real Drive property encoding, so its limits apply here too.
+        val stored = VersionProps.decode(fileId, VersionProps.encode(v))!!
         all += stored
         farmOf[stored.id] = farm
         if (hideUploadsFor > 0) hidden[stored.id] = hideUploadsFor
         return stored
     }
 
+    fun zipOf(v: VersionEntry): File = File(dir, v.fileId)
+
     override fun markLost(v: VersionEntry) {
         val i = all.indexOfFirst { it.id == v.id }
-        all[i] = all[i].copy(lost = true)
+        all[i] = VersionProps.decode(all[i].fileId, VersionProps.encode(all[i]) + ("lost" to "1"))!!
     }
 
     override fun download(v: VersionEntry, dest: File) {
