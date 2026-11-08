@@ -92,6 +92,7 @@ sealed interface Message {
     data class WriteFailed(val detail: String, val rolledBack: Boolean, val beforeTime: Long?) : Message
     data class DriveLinked(val email: String, val newVault: Boolean) : Message
     data object VaultMismatch : Message
+    data object ShizukuMissing : Message
     data class SyncDone(val uploaded: Int, val downloaded: Int, val attention: Int) : Message
 }
 
@@ -129,7 +130,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     fun confirmCreateVault() {
         _state.update { it.copy(sync = it.sync.copy(confirmCreateVaultFor = null)) }
         withToken(syncPrefs.email ?: pendingEmail) { token ->
-            runBusy { _ ->
+            runBusyNoFs {
                 val api = DriveApi(token)
                 val vault = Vault.find(api) ?: Vault.create(api)
                 syncPrefs.email = api.aboutEmail()
@@ -196,7 +197,8 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
 
     private var pendingEmail: String? = null
 
-    private fun finishLink(token: String) = runBusy { _ ->
+    /** Linking only talks to Drive: it must work even while Shizuku is not running. */
+    private fun finishLink(token: String) = runBusyNoFs {
         val api = DriveApi(token)
         val email = api.aboutEmail()
         pendingEmail = email
@@ -402,11 +404,31 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     /** Runs [block] off the main thread with a progress bar; a returned message is shown. */
     private fun runBusy(block: suspend (ISaveFs) -> Message?) {
         if (_state.value.busy) return
+        // Say it plainly instead of Shizuku's internal "binder" errors.
+        if (ShizukuGate.status(getApplication()) != ShizukuStatus.READY) {
+            _state.update { it.copy(message = Message.ShizukuMissing) }
+            refresh()
+            return
+        }
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
             val msg = try {
                 val fs = withContext(Dispatchers.IO) { ShizukuGate.saveFs() }
                 withContext(Dispatchers.IO) { block(fs) }.also { scanInto(fs) }
+            } catch (e: Exception) {
+                Message.Failed(e.message ?: e.javaClass.simpleName)
+            }
+            _state.update { it.copy(busy = false, message = msg ?: it.message) }
+        }
+    }
+
+    /** Like [runBusy] for work that only talks to Google Drive and never touches saves. */
+    private fun runBusyNoFs(block: suspend () -> Message?) {
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            val msg = try {
+                withContext(Dispatchers.IO) { block() }
             } catch (e: Exception) {
                 Message.Failed(e.message ?: e.javaClass.simpleName)
             }

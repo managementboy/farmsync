@@ -228,6 +228,7 @@ private fun messageText(m: Message): String = when (m) {
     )
     is Message.DriveLinked -> stringResource(if (m.newVault) R.string.drive_linked_new else R.string.drive_linked, m.email)
     Message.VaultMismatch -> stringResource(R.string.vault_mismatch)
+    Message.ShizukuMissing -> stringResource(R.string.shizuku_not_running)
     is Message.SyncDone -> stringResource(R.string.sync_done, m.uploaded, m.downloaded, m.attention)
     is Message.WriteFailed -> when {
         m.beforeTime == null -> stringResource(R.string.import_new_failed, m.detail)

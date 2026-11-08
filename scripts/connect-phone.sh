@@ -19,7 +19,13 @@ if [ -n "${ROUTE_SUBNET:-}" ] && ! ip route show "$ROUTE_SUBNET" | grep -q 'mtu 
   echo "  sudo ip route replace $ROUTE_SUBNET via $ROUTE_GATEWAY dev $ROUTE_DEV mtu lock 1360 advmss 1300" >&2
 fi
 
-ping -c1 -W3 "$IP" >/dev/null || { echo "Device $IP not reachable (Wi-Fi off or new IP?)" >&2; exit 1; }
+if ! out=$(ping -c1 -W3 "$IP" 2>&1); then
+  # ping may be forbidden in sandboxes ("Operation not permitted"); the port scan decides then.
+  case "$out" in
+    *"not permitted"*|*cap_net_raw*) echo "(ping not allowed here, scanning directly)" >&2 ;;
+    *) echo "Device $IP not reachable (Wi-Fi off or new IP?)" >&2; exit 1 ;;
+  esac
+fi
 
 echo "Scanning $IP for the adb port..."
 ports=$(seq 30000 49999 | xargs -P 400 -I{} sh -c "nc -z -w 2 $IP {} 2>/dev/null && echo {}" | sort -n)

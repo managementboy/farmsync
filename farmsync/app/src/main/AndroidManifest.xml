@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Google Drive sync (Drive REST API over HTTPS). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Read the installed Stardew Valley version (R6) and detect Shizuku. -->
     <queries>
         <package android:name="com.chucklefish.stardewvalley" />
