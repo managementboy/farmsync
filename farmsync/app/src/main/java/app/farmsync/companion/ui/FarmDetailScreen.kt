@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -31,10 +33,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -73,15 +77,17 @@ fun FarmDetailScreen(
     syncEnabled: Boolean,
     syncResult: FarmSyncResult?,
     onSyncEnabled: (Boolean) -> Unit,
-    onResolve: (keepLocal: Boolean) -> Unit,
+    onDownloadAnyway: () -> Unit,
 ) {
     val c = Farm.colors
     val info = farm?.info ?: snapshots.firstOrNull()?.info
-    var confirm by remember { mutableStateOf<SnapshotMeta?>(null) }
+    // Survives rotation: only the id is saved, and the snapshot is looked up again (it may be gone).
+    var confirmId by rememberSaveable { mutableStateOf<String?>(null) }
+    val confirm = snapshots.firstOrNull { it.id == confirmId }
     var showTech by remember { mutableStateOf(false) }
     confirm?.let { s ->
         if (farm != null) {
-            RestoreDialog(farm, s, gameRunning, onConfirm = { confirm = null; onRestore(s) }, onDismiss = { confirm = null })
+            RestoreDialog(farm, s, gameRunning, driveLinked, onConfirm = { confirmId = null; onRestore(s) }, onDismiss = { confirmId = null })
         }
     }
     Scaffold(
@@ -139,7 +145,7 @@ fun FarmDetailScreen(
                 }
             }
             if (driveLinked && farm != null) {
-                item { SyncCard(syncEnabled, syncResult, busy, onSyncEnabled, onResolve) }
+                item { SyncCard(syncEnabled, syncResult, busy, onSyncEnabled, onDownloadAnyway) }
             }
             item { SectionTitle(stringResource(R.string.backups_title)) }
             if (snapshots.isEmpty()) {
@@ -153,7 +159,7 @@ fun FarmDetailScreen(
                                 s,
                                 isCurrent = farm?.fingerprint == s.fingerprint,
                                 canRestore = farm != null && !busy,
-                                onRestore = { confirm = s },
+                                onRestore = { confirmId = s.id },
                                 onPin = { onPin(s, !s.pinned) },
                                 onShare = { onShareSnapshot(s) },
                             )
@@ -201,36 +207,27 @@ private fun SyncCard(
     r: FarmSyncResult?,
     busy: Boolean,
     onEnabled: (Boolean) -> Unit,
-    onResolve: (keepLocal: Boolean) -> Unit,
+    onDownloadAnyway: () -> Unit,
 ) {
     val c = Farm.colors
     Column(Modifier.fillMaxWidth().card().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // One accessible switch: the label and the toggle are a single node with a 48 dp target.
+        Row(
+            Modifier.fillMaxWidth()
+                .defaultMinSize(minHeight = 48.dp)
+                .toggleable(value = enabled, enabled = !busy, role = Role.Switch, onValueChange = onEnabled),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(stringResource(R.string.sync_switch), fontSize = 16.sp, fontWeight = FontWeight.Medium, color = c.ink,
                 modifier = Modifier.weight(1f))
-            PixelSwitch(enabled, onEnabled, enabled = !busy)
+            PixelSwitch(enabled, onCheckedChange = null, enabled = !busy)
         }
         val look = syncLook(enabled, r)
         StatusLine(look.icon, look.text, look.color)
-        r?.detail?.takeIf { r.outcome == Outcome.FAILED }?.let { Text(it, fontSize = 12.sp, color = c.alert) }
-        when (r?.outcome) {
-            Outcome.CONFLICT -> {
-                Text(stringResource(R.string.conflict_explain), fontSize = 14.sp, color = c.ink)
-                r.local?.info?.let { Text(stringResource(R.string.conflict_here) + " " + gameDate(it), fontSize = 14.sp, color = c.ink2) }
-                r.remote?.let { v ->
-                    Text(stringResource(R.string.conflict_drive, v.deviceName) + " " + (v.info?.let { gameDate(it) } ?: "?"),
-                        fontSize = 14.sp, color = c.ink2)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PixelButton(stringResource(R.string.keep_this_device), { onResolve(true) }, kind = ButtonKind.FILLED, enabled = !busy)
-                    PixelButton(stringResource(R.string.keep_drive), { onResolve(false) }, enabled = !busy)
-                }
-            }
-            Outcome.WAITING_MIDDAY -> {
-                Text(stringResource(R.string.midday_pull_explain), fontSize = 14.sp, color = c.ink2)
-                PixelButton(stringResource(R.string.download_anyway), { onResolve(false) }, icon = R.drawable.pi_download, enabled = !busy)
-            }
-            else -> Unit
+        r?.detail?.takeIf { r.outcome == Outcome.FAILED }?.let { Text(failureText(it), fontSize = 13.sp, color = c.alert) }
+        if (r?.outcome == Outcome.WAITING_MIDDAY) {
+            Text(stringResource(R.string.midday_pull_explain), fontSize = 14.sp, color = c.ink2)
+            PixelButton(stringResource(R.string.download_anyway), onDownloadAnyway, icon = R.drawable.pi_download, enabled = !busy)
         }
     }
 }
@@ -276,6 +273,7 @@ private fun RestoreDialog(
     farm: SaveFarm,
     snapshot: SnapshotMeta,
     gameRunning: Boolean,
+    syncOn: Boolean,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -295,6 +293,7 @@ private fun RestoreDialog(
                     Text(stringResource(R.string.restore_goes_back), color = c.harvest)
                 }
                 if (farm.midday) Text(stringResource(R.string.restore_midday_warning), color = c.harvest)
+                if (syncOn) Text(stringResource(R.string.restore_shared_note), fontSize = 13.sp, color = c.ink2)
                 Text(stringResource(R.string.restore_safety_note), fontSize = 13.sp, color = c.ink2)
                 if (gameRunning) Text(stringResource(R.string.game_running), color = c.alert)
             }

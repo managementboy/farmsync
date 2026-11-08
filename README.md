@@ -11,7 +11,7 @@ Back up and sync **Stardew Valley** save games between your own Android devices.
 - **Snapshots:** verified backups of a farm. Each one is hashed while copying, re-checked against the device, and the stored zip is re-read. Taken automatically when the app opens, but only for farms that changed.
 - **Restore:** brings back any snapshot safely (see the rules below).
 - **Export / import:** a farm as a zip through the Android share sheet.
-- **Google Drive sync:** *in progress*. It syncs through a folder in your **own** Drive, using the `drive.file` permission only.
+- **Google Drive sync:** through a folder in your **own** Drive, using the `drive.file` permission only. Every farm syncs automatically each time you open the app (no background sync). If a farm was played on two devices, the one with more play time continues; the other version stays in Drive and as a backup on its device. A restore or import you make on purpose becomes the shared version.
 
 ## How it reaches the save files
 
@@ -19,8 +19,8 @@ Since Android 11, apps can't access another app's `Android/data` folder, and **A
 Farm Sync therefore uses **[Shizuku](https://shizuku.rikka.app/)**: it binds a small file service that runs as the `shell` user. That user is allowed to read and write `Android/data/com.chucklefish.stardewvalley/files/Saves`. The service is deliberately narrow:
 
 - **Paths:** never outside the `Saves` folder (`..`, absolute paths and symlinks are rejected).
-- **Writes:** only the four standard save files of a farm folder.
-- **Deletes:** only the farm's `BACKUP_SAVE` pointer (the "restore where you left off?" marker). There is no general delete.
+- **Writes:** only the four standard save files of a farm folder, first as new staging files (never through a link), then renamed into place. The `BACKUP_SAVE` pointer can be written back only to undo a failed write.
+- **Deletes:** only the farm's `BACKUP_SAVE` pointer (the "restore where you left off?" marker) and its own staging files. There is no general delete.
 - **New folders:** only new, empty farm folders.
 
 **Tested on:** Android 16 and 17 (Samsung One UI 8.5 / 9) with Shizuku 13.6, Stardew Valley 1.6.15.3.
@@ -32,11 +32,11 @@ Farm Sync therefore uses **[Shizuku](https://shizuku.rikka.app/)**: it binds a s
 |---|---|
 | R1 | Snapshot before every write |
 | R2 | Never write while Stardew is in memory (the process must be gone, not just in the background); never force-stop the game |
-| R3 | Atomic writes (`.sstmp` + md5 check + rename), `SaveGameInfo` last |
-| R4 | Paths restricted to the Saves folder |
+| R3 | All files staged and checked (`.sstmp` + md5) before any live file changes, then renamed with `SaveGameInfo` last; a write journal finishes or undoes an interrupted write on the next start |
+| R4 | Paths restricted to the Saves folder, never through a symbolic link |
 | R5 | Never re-create a farm the user deleted |
-| R6 | Never import a save that's newer than the installed game (4-part versions: `1.6.15.3 > 1.6.15`) |
-| R7 | Mid-day state handled explicitly: `BACKUP_SAVE` moves into the snapshot |
+| R6 | Never write a save that's newer than the installed game (4-part versions: `1.6.15.3 > 1.6.15`); an unknown version is blocked |
+| R7 | Mid-day state handled explicitly: `BACKUP_SAVE` moves into the snapshot and is put back on a rollback; sync never replaces unsaved mid-day progress without asking |
 | R8 | A farm's identity is its folder name **including the ID** |
 | R9 | Verify after writing; roll back automatically on mismatch |
 

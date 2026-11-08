@@ -80,7 +80,7 @@
     <string name="origin_sync">para sincronizar</string>
     <string name="origin_before_sync">antes de descargar</string>
     <string name="drive_not_linked">Google Drive: sin vincular</string>
-    <string name="drive_not_linked_hint">Vincula una cuenta de Google para sincronizar granjas entre tus dispositivos. Farm Sync solo ve los archivos que crea allí.</string>
+    <string name="drive_not_linked_hint">Vincula una cuenta de Google para sincronizar granjas entre tus dispositivos. Una vez vinculada, cada granja se sincroniza sola cada vez que abres Farm Sync, y un día más nuevo de otro dispositivo sustituye al de aquí. Antes siempre se hace una copia. Farm Sync solo ve los archivos que crea en tu Drive.</string>
     <string name="drive_link">Vincular Google Drive</string>
     <string name="drive_linked_as">Google Drive: %1$s</string>
     <string name="drive_unlink">Desvincular</string>
@@ -113,12 +113,6 @@
     <string name="sync_deleted_here">Borrada en este dispositivo, no se volverá a descargar</string>
     <string name="sync_vault_changed">Drive cambió durante la sincronización: sincroniza de nuevo</string>
     <string name="sync_failed">La sincronización falló</string>
-    <string name="conflict_explain">Esta granja se jugó en este dispositivo Y en otro desde la última sincronización. Ambas versiones están a salvo en Drive. Elige cuál continúa:</string>
-    <string name="conflict_here">Este dispositivo:</string>
-    <string name="conflict_drive">Drive (%1$s):</string>
-    <string name="keep_this_device">Conservar este dispositivo</string>
-    <string name="keep_drive">Usar la de Drive</string>
-    <string name="conflict_safe_note">La versión no elegida se queda en Drive y en una copia local.</string>
     <string name="midday_pull_explain">Descargar guarda en una copia el progreso a mitad del día de este dispositivo; el juego no ofrecerá continuarlo. Si quieres seguir ese día aquí, duerme primero en el juego.</string>
     <string name="download_anyway">Descargar igualmente</string>
     <string name="sync_waiting_midday">Drive tiene un día más nuevo; se descargará cuando duermas en el juego aquí (el progreso a mitad del día no se sobrescribe).</string>
@@ -142,7 +136,6 @@
     <string name="st_resolved_remote">Jugada en dos dispositivos: se tomó la otra</string>
     <string name="st_waiting_midday">El día nuevo espera a que duermas en el juego</string>
     <string name="st_game_open">Cierra Stardew para descargar</string>
-    <string name="st_conflict">Elige qué versión sigue</string>
     <string name="st_failed">No se pudo sincronizar</string>
     <string name="st_available">En Drive</string>
     <string name="st_deleted_here">Borrada en este dispositivo</string>
@@ -222,4 +215,23 @@
     <string name="about_trademark">Stardew Valley es una marca de ConcernedApe LLC. Farm Sync es un proyecto independiente de fans, sin relación con ConcernedApe ni Chucklefish ni respaldado por ellos. No usa ningún gráfico del juego.</string>
     <string name="about_ai_title">Hecho con IA</string>
     <string name="about_ai_text">No soy desarrollador. Farm Sync lo escribió por completo una IA (Claude, de Anthropic) a partir de mis descripciones, y lo probé en mis propios dispositivos con mis propias granjas. Es un proyecto personal sin garantía: guarda tus propias copias y lee el código fuente si quieres saber exactamente qué hace.</string>
+    <string name="blocked_version_unknown">No se escribió: no se conoce la versión del juego de esta partida o del Stardew instalado, así que no se puede comprobar que el juego pueda abrirla.</string>
+    <string name="blocked_changed">No se escribió: la granja cambió en este dispositivo mientras tanto. No se sustituyó nada; inténtalo de nuevo.</string>
+    <string name="blocked_midday">No se escribió: esta granja tiene progreso sin guardar de mitad del día. Primero duerme en el juego.</string>
+    <string name="blocked_needs_repair">No se escribió: una escritura anterior en esta granja se interrumpió y primero hay que repararla. Cierra Stardew y vuelve a abrir Farm Sync.</string>
+    <string name="import_ambiguous">Este zip contiene un archivo dos veces o su información de versión se contradice. No se importó nada.</string>
+    <string name="st_retry_later">Se jugó mientras tanto, se sincroniza la próxima vez</string>
+    <string name="st_needs_repair">Escritura interrumpida, reparación pendiente</string>
+    <string name="recovered_completed">%1$s: se terminó y comprobó una escritura interrumpida.</string>
+    <string name="recovered_rolled_back">%1$s: se deshizo una escritura interrumpida. La granja está como antes.</string>
+    <string name="recovered_waiting">%1$s: una escritura interrumpida necesita reparación. Cierra Stardew por completo y vuelve a abrir Farm Sync.</string>
+    <string name="recovered_incomplete_new">%1$s: una descarga no terminó. Descárgala otra vez para completarla.</string>
+    <string name="recovered_needs_help">%1$s: una escritura interrumpida no se pudo reparar sola. Restaura la copia más reciente de antes de %2$s.</string>
+    <string name="fail_offline">Sin conexión a internet. Se sincroniza cuando vuelvas a estar en línea.</string>
+    <string name="fail_drive_auth">Google Drive rechazó el acceso. Vuelve a vincular tu cuenta en Ajustes.</string>
+    <string name="fail_drive_quota">Google Drive está lleno u ocupado. Inténtalo más tarde.</string>
+    <string name="fail_not_visible">Subida, pero Drive aún no la muestra. Se comprueba la próxima vez.</string>
+    <string name="fail_write">No se pudo escribir la granja; se dejó como estaba.</string>
+    <string name="fail_generic">Algo salió mal. Se vuelve a intentar la próxima vez.</string>
+    <string name="restore_shared_note">Con la sincronización activa, este día restaurado pasa a ser la versión compartida en todos tus dispositivos en la próxima sincronización.</string>
 </resources>

@@ -30,7 +30,7 @@ class SyncLog(private val file: File) {
                 .put("remoteDevice", r.remote?.deviceName ?: JSONObject.NULL)
                 .toString()
         }
-        val all = (if (file.exists()) file.readLines() else emptyList()) + lines
+        val all = (if (file.exists()) file.readLines().map(::scrub) else emptyList()) + lines
         file.parentFile?.mkdirs()
         file.writeText(all.takeLast(MAX).joinToString("\n", postfix = "\n"))
     }
@@ -46,7 +46,7 @@ class SyncLog(private val file: File) {
                     source = o.getString("source"),
                     farm = o.getString("farm"),
                     outcome = Outcome.valueOf(o.getString("outcome")),
-                    detail = o.optString("detail").takeIf { !o.isNull("detail") },
+                    detail = o.optString("detail").takeIf { !o.isNull("detail") }?.let(::scrubDetail),
                     remoteDevice = o.optString("remoteDevice").takeIf { !o.isNull("remoteDevice") },
                 )
             }.getOrNull()
@@ -57,6 +57,15 @@ class SyncLog(private val file: File) {
     fun latestPerFarm(): Map<String, Entry> = entries().groupBy { it.farm }.mapValues { (_, v) -> v.last() }
 
     fun lastTime(): Long? = entries().lastOrNull()?.time
+
+    /** Before 0.10 a failed Drive call stored the start of Google's response; drop it (F16). */
+    private fun scrub(line: String): String = runCatching {
+        val o = JSONObject(line)
+        if (o.isNull("detail")) line else o.put("detail", scrubDetail(o.getString("detail"))).toString()
+    }.getOrDefault(line)
+
+    private fun scrubDetail(d: String) =
+        if (d.startsWith("Drive ")) "drive_" + d.removePrefix("Drive ").takeWhile { it.isDigit() } else d
 
     companion object {
         const val MAX = 500

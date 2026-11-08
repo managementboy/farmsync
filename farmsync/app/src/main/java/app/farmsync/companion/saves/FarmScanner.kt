@@ -1,12 +1,10 @@
 package app.farmsync.companion.saves
 
-import android.os.ParcelFileDescriptor
-import app.farmsync.companion.ISaveFs
 import app.farmsync.companion.store.SnapshotStore
 import org.json.JSONArray
 
-/** Reads the farm list from the device through [ISaveFs]. Read-only. */
-class FarmScanner(private val fs: ISaveFs) {
+/** Reads the farm list from the device through [SaveFs]. Read-only. */
+class FarmScanner(private val fs: SaveFs) {
 
     fun scan(): List<Farm> {
         val farms = JSONArray(fs.listFarmsJson())
@@ -35,5 +33,5 @@ class FarmScanner(private val fs: ISaveFs) {
     }
 
     private fun readBytes(relPath: String): ByteArray =
-        ParcelFileDescriptor.AutoCloseInputStream(fs.openRead(relPath)).use { it.readBytes() }
+        fs.openRead(relPath).use { it.readBytes() }
 }

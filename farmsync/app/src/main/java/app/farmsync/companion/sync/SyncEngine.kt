@@ -1,205 +1,176 @@
 package app.farmsync.companion.sync
 
-import app.farmsync.companion.ISaveFs
+import app.farmsync.companion.ops.ImportCandidate
 import app.farmsync.companion.ops.ImportReader
 import app.farmsync.companion.ops.OpBlocked
+import app.farmsync.companion.ops.OpFailed
 import app.farmsync.companion.ops.SaveOps
+import app.farmsync.companion.ops.WriteJournal
 import app.farmsync.companion.saves.Farm
+import app.farmsync.companion.saves.SaveFs
 import app.farmsync.companion.store.SnapshotOrigin
 import app.farmsync.companion.store.SnapshotStore
 import java.io.File
 
 enum class Outcome {
-    UP_TO_DATE, UPLOADED, DOWNLOADED, CONFLICT, BLOCKED_GAME_RUNNING,
+    UP_TO_DATE, UPLOADED, DOWNLOADED, BLOCKED_GAME_RUNNING,
     /** Drive has a newer day, but this device has unsaved mid-day progress: wait for a sleep. */
     WAITING_MIDDAY,
-    /** Conflict decided by [ConflictPolicy]: this device's version continues. */
+    /** Played on two devices; decided by [ConflictPolicy]: this device's version continues. */
     RESOLVED_KEPT_LOCAL,
-    /** Conflict decided by [ConflictPolicy]: the other device's version was downloaded. */
+    /** Played on two devices; decided by [ConflictPolicy]: the other device's version was downloaded. */
     RESOLVED_TOOK_REMOTE,
+    /** The farm was played on this device while the sync ran: synced next time, nothing replaced. */
+    RETRY_LATER,
+    /** An interrupted write to this farm has to be repaired before it syncs again. */
+    NEEDS_REPAIR,
     AVAILABLE, DELETED_HERE, VAULT_CHANGED, FAILED,
 }
 
 data class FarmSyncResult(
     val farm: String,
     val outcome: Outcome,
-    /** The vault's newest version (for conflict / download dialogs). */
+    /** The vault's newest version (for status lines and the download list). */
     val remote: VersionEntry? = null,
-    /** This device's version when it is in conflict. */
-    val local: VersionEntry? = null,
+    /** A short, non-personal reason code for failures (see Format.failureText). */
     val detail: String? = null,
 )
 
 /**
  * Executes the [SyncDecider] decision for one farm. Every change to saves goes through
- * [SaveOps] (snapshot first, game must be closed, verify, roll back). Uploads only read.
+ * [SaveOps] (snapshot first, game closed, staged and verified, journal, roll back).
+ * Uploads only read the farm and add a new file to the vault; they never change existing ones.
  */
 class SyncEngine(
-    private val fs: ISaveFs,
+    private val fs: SaveFs,
     private val store: SnapshotStore,
-    private val vault: Vault,
-    private val prefs: SyncPrefs,
+    private val vault: VersionVault,
+    private val state: SyncState,
     private val tempDir: File,
     private val installedGameVersion: String?,
+    private val journal: WriteJournal,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    private val me get() = prefs.deviceId
+    private val me get() = state.deviceId
+    private val ops get() = SaveOps(fs, store, tempDir, journal, clock)
 
     fun sync(local: Farm?, farm: String, allowMidday: Boolean = false): FarmSyncResult {
-        val manifest = vault.readManifest(farm)
-        val base = prefs.base(farm)
-        return when (SyncDecider.decide(local?.fingerprint, base, manifest)) {
+        if (local != null && journal.has(farm)) return FarmSyncResult(farm, Outcome.NEEDS_REPAIR)
+        val versions = vault.versions(farm)
+        val head = VersionGraph.head(versions)
+        val base = state.base(farm)
+        val forced = local != null && state.isForced(farm)
+        return when (SyncDecider.decide(local?.fingerprint, base, forced, versions)) {
             SyncAction.NONE -> FarmSyncResult(farm, Outcome.UP_TO_DATE)
-            SyncAction.CREATE, SyncAction.PUSH -> push(local!!, manifest, base)
+            SyncAction.REMOTE_ONLY -> FarmSyncResult(farm, Outcome.AVAILABLE, remote = head)
+            SyncAction.DELETED_HERE -> FarmSyncResult(farm, Outcome.DELETED_HERE, remote = head)
             SyncAction.UP_TO_DATE -> {
-                if (manifest!!.devices[me]?.has != manifest.head || base != manifest.head) {
-                    prefs.setBase(farm, manifest.head)
-                    writeDevice(farm, manifest.head, local!!.midday)
-                }
-                FarmSyncResult(farm, Outcome.UP_TO_DATE, remote = manifest.headVersion)
+                if (base != head!!.id) state.setBase(farm, head.id)
+                FarmSyncResult(farm, Outcome.UP_TO_DATE, remote = head)
             }
-            SyncAction.PULL -> pull(local!!, manifest!!, allowMidday)
-            SyncAction.CONFLICT -> resolveAutomatically(local!!, manifest!!, base)
-            SyncAction.REMOTE_ONLY -> FarmSyncResult(farm, Outcome.AVAILABLE, remote = manifest!!.headVersion)
-            SyncAction.DELETED_HERE -> {
-                if (manifest!!.devices[me]?.deletedHere != true) writeDevice(farm, base, false, deletedHere = true)
-                FarmSyncResult(farm, Outcome.DELETED_HERE, remote = manifest.headVersion)
-            }
+            SyncAction.PULL -> pull(local!!, head!!, allowMidday)
+            SyncAction.PUSH -> push(local!!, versions, base, forced)
         }
-    }
-
-    /**
-     * Both this device and another one moved the farm on. Decided by [ConflictPolicy] without
-     * asking. The losing version is kept: in the vault always, and as a local snapshot when this
-     * device's version is replaced.
-     */
-    private fun resolveAutomatically(local: Farm, m: Manifest, base: String?): FarmSyncResult {
-        val farm = local.folder
-        val head = m.headVersion ?: return push(local, m, base)
-        val localSavedAt = local.files.firstOrNull { it.name == "SaveGameInfo" }?.mtime ?: 0L
-        val keepMine = ConflictPolicy.keepLocal(local.info, local.midday, localSavedAt, head.info, head.created)
-        return if (keepMine) {
-            keepLocal(local).copy(outcome = Outcome.RESOLVED_KEPT_LOCAL, remote = head)
-        } else {
-            // Park this device's version in the vault (not as head) before replacing it here.
-            val mine = m.versions[local.fingerprint] ?: upload(local, base, conflict = false)
-            val fresh = vault.readManifest(farm) ?: m
-            vault.writeManifest(fresh.copy(versions = fresh.versions + (mine.id to mine.copy(conflict = false))))
-            val r = pull(local, vault.readManifest(farm)!!, allowMidday = false)
-            if (r.outcome == Outcome.DOWNLOADED) r.copy(outcome = Outcome.RESOLVED_TOOK_REMOTE, local = mine) else r
-        }
-    }
-
-    /** Conflict resolved by the user: the version on this device becomes the newest everywhere. */
-    fun keepLocal(local: Farm): FarmSyncResult {
-        val farm = local.folder
-        val fresh = vault.readManifest(farm) ?: Manifest.empty(farm)
-        val entry = fresh.versions[local.fingerprint] ?: upload(local, prefs.base(farm), conflict = false)
-        val now = System.currentTimeMillis()
-        val versions = fresh.versions + (entry.id to entry.copy(conflict = false))
-        val updated = fresh.copy(
-            head = entry.id,
-            versions = versions,
-            devices = fresh.devices + (me to DeviceEntry(prefs.deviceName, entry.id, now, local.midday)),
-        )
-        vault.writeManifest(updated.mergedOnto(vault.readManifest(farm)))
-        prefs.setBase(farm, entry.id)
-        return FarmSyncResult(farm, Outcome.UPLOADED, remote = entry)
-    }
-
-    /** Conflict resolved by the user: take the vault's newest version (a safety snapshot keeps ours). */
-    fun keepRemote(local: Farm): FarmSyncResult {
-        val farm = local.folder
-        val m = vault.readManifest(farm) ?: return FarmSyncResult(farm, Outcome.FAILED, detail = "no manifest")
-        m.versions[local.fingerprint]?.takeIf { it.conflict }?.let { mine ->
-            vault.writeManifest(m.copy(versions = m.versions + (mine.id to mine.copy(conflict = false)))
-                .mergedOnto(vault.readManifest(farm)))
-        }
-        return pull(local, vault.readManifest(farm)!!, allowMidday = true)
     }
 
     /** A farm that is only in the vault: add it to this device as a new folder. */
     fun downloadNew(farm: String): FarmSyncResult {
-        val m = vault.readManifest(farm) ?: return FarmSyncResult(farm, Outcome.FAILED, detail = "no manifest")
-        val head = m.headVersion ?: return FarmSyncResult(farm, Outcome.FAILED, detail = "no version")
+        val head = VersionGraph.head(vault.versions(farm)) ?: return FarmSyncResult(farm, Outcome.FAILED, detail = "no_version")
         return try {
-            val candidate = fetch(head, farm)
-            SaveOps(fs, store, tempDir).addNew(candidate, installedGameVersion)
-            prefs.setBase(farm, head.id)
-            prefs.setEnabled(farm, true)
-            writeDevice(farm, head.id, false)
+            ops.addNew(fetch(head, farm), installedGameVersion)
+            state.setBase(farm, head.id)
+            state.setEnabled(farm, true)
             FarmSyncResult(farm, Outcome.DOWNLOADED, remote = head)
         } catch (e: OpBlocked) {
             blocked(farm, e, head)
+        } catch (e: OpFailed) {
+            FarmSyncResult(farm, Outcome.FAILED, remote = head, detail = "write_failed")
         }
     }
 
-    private fun push(local: Farm, seen: Manifest?, base: String?): FarmSyncResult {
+    /**
+     * New play (or a deliberate restore) here: upload it first, then let the shared version set
+     * decide. Never loses anything: our version is in the vault before anything is replaced.
+     */
+    private fun push(local: Farm, versions: List<VersionEntry>, base: String?, forced: Boolean): FarmSyncResult {
         val farm = local.folder
-        val entry = upload(local, base, conflict = false)
-        val fresh = vault.readManifest(farm)
-        if (fresh?.head != seen?.head) {
-            // Another device moved the farm on while we uploaded: do not overwrite its head.
-            return resolveAutomatically(local, fresh!!, base)
+        // A deliberate restore replaces every current line of play; normal play continues from the base.
+        val parents = if (forced) (VersionGraph.tips(versions).map { it.id } + listOfNotNull(base)).distinct()
+        else listOfNotNull(base)
+        // An upload of exactly this that an interrupted run left behind is reused, not repeated.
+        val mine = versions.firstOrNull { it.deviceId == me && it.fingerprint == local.fingerprint && it.parents == parents }
+            ?: upload(local, parents)
+
+        val after = vault.versions(farm)
+        // Report success only once the new version can be found by every device. Until then
+        // nothing is recorded here, so the next run finds and reuses this upload.
+        if (after.none { it.id == mine.id }) return FarmSyncResult(farm, Outcome.FAILED, detail = "not_visible")
+        if (forced) state.setForced(farm, false)
+        state.setBase(farm, mine.id)
+        val head = VersionGraph.head(after)!!
+        val conflict = VersionGraph.inConflict(after)
+        if (conflict) markLosers(after, head)
+        if (head.fingerprint == local.fingerprint) {
+            return FarmSyncResult(farm, if (conflict) Outcome.RESOLVED_KEPT_LOCAL else Outcome.UPLOADED, remote = head)
         }
-        val now = System.currentTimeMillis()
-        val updated = (fresh ?: Manifest.empty(farm)).let { m ->
-            m.copy(
-                head = entry.id,
-                versions = m.versions + (entry.id to entry),
-                devices = m.devices + (me to DeviceEntry(prefs.deviceName, entry.id, now, local.midday)),
-            )
-        }
-        vault.writeManifest(updated)
-        prefs.setBase(farm, entry.id)
-        return FarmSyncResult(farm, Outcome.UPLOADED, remote = entry)
+        // Another device's line of play wins: ours stays in the vault (and as a snapshot here).
+        val r = pull(local, head, allowMidday = false)
+        return if (r.outcome == Outcome.DOWNLOADED) r.copy(outcome = Outcome.RESOLVED_TOOK_REMOTE) else r
     }
 
-    private fun pull(local: Farm, m: Manifest, allowMidday: Boolean): FarmSyncResult {
+    private fun pull(local: Farm, head: VersionEntry, allowMidday: Boolean): FarmSyncResult {
         val farm = local.folder
-        val head = m.headVersion ?: return FarmSyncResult(farm, Outcome.FAILED, detail = "no head")
         if (local.midday && !allowMidday) return FarmSyncResult(farm, Outcome.WAITING_MIDDAY, remote = head)
         return try {
             val candidate = fetch(head, farm)
-            SaveOps(fs, store, tempDir).replace(candidate, installedGameVersion, SnapshotOrigin.BEFORE_SYNC)
-            prefs.setBase(farm, head.id)
-            writeDevice(farm, head.id, false)
+            // The farm must still be what this decision was based on (F3): if it was played
+            // while the download ran, nothing is replaced and it syncs next time.
+            ops.replace(candidate, installedGameVersion, SnapshotOrigin.BEFORE_SYNC,
+                expectedFingerprint = local.fingerprint, allowMidday = allowMidday)
+            state.setBase(farm, head.id)
             FarmSyncResult(farm, Outcome.DOWNLOADED, remote = head)
         } catch (e: OpBlocked) {
             blocked(farm, e, head)
+        } catch (e: OpFailed) {
+            FarmSyncResult(farm, if (e.rolledBack) Outcome.FAILED else Outcome.NEEDS_REPAIR, remote = head,
+                detail = if (e.rolledBack) "write_failed_rolled_back" else "write_failed")
         }
     }
 
-    private fun blocked(farm: String, e: OpBlocked, head: VersionEntry) =
-        if (e.reason == OpBlocked.Reason.GAME_RUNNING) FarmSyncResult(farm, Outcome.BLOCKED_GAME_RUNNING, remote = head)
-        else FarmSyncResult(farm, Outcome.FAILED, remote = head, detail = e.reason.name)
+    private fun markLosers(all: List<VersionEntry>, head: VersionEntry) {
+        VersionGraph.tips(all).filter { !it.lost && it.id != head.id }.forEach { runCatching { vault.markLost(it) } }
+    }
 
-    /** Uploads the farm's current state (via a snapshot zip) and returns its version entry. */
-    private fun upload(local: Farm, parent: String?, conflict: Boolean): VersionEntry {
+    private fun blocked(farm: String, e: OpBlocked, head: VersionEntry) = when (e.reason) {
+        OpBlocked.Reason.GAME_RUNNING -> FarmSyncResult(farm, Outcome.BLOCKED_GAME_RUNNING, remote = head)
+        OpBlocked.Reason.CHANGED -> FarmSyncResult(farm, Outcome.RETRY_LATER, remote = head)
+        OpBlocked.Reason.MIDDAY -> FarmSyncResult(farm, Outcome.WAITING_MIDDAY, remote = head)
+        OpBlocked.Reason.NEEDS_REPAIR -> FarmSyncResult(farm, Outcome.NEEDS_REPAIR, remote = head)
+        else -> FarmSyncResult(farm, Outcome.FAILED, remote = head, detail = e.reason.name.lowercase())
+    }
+
+    /** Uploads the farm's current state (via a snapshot zip) as a new version. */
+    private fun upload(local: Farm, parents: List<String>): VersionEntry {
         val snap = store.list(local.folder).firstOrNull { it.contentHash == local.contentHash }
             ?: store.create(fs, local, SnapshotOrigin.SYNC)
         check(snap.fingerprint == local.fingerprint) { "Snapshot does not match the farm" }
-        val fileId = vault.uploadVersion(local.folder, local.fingerprint, store.zipFile(snap).readBytes())
-        return VersionEntry(
-            id = local.fingerprint, fileId = fileId, parent = parent, deviceId = me,
-            deviceName = prefs.deviceName, created = System.currentTimeMillis(), info = local.info,
-            conflict = conflict,
+        val entry = VersionEntry(
+            id = VersionEntry.newId(), fingerprint = local.fingerprint, fileId = "", parents = parents,
+            deviceId = me, deviceName = state.deviceName, created = clock(),
+            savedAt = local.files.firstOrNull { it.name == "SaveGameInfo" }?.mtime ?: 0L,
+            info = local.info,
         )
+        return vault.upload(local.folder, entry, store.zipFile(snap))
     }
 
     /** Downloads a version and validates it like any import (folder, ID, files, fingerprint). */
-    private fun fetch(v: VersionEntry, farm: String): app.farmsync.companion.ops.ImportCandidate {
+    private fun fetch(v: VersionEntry, farm: String): ImportCandidate {
         val work = File(tempDir, "sync").apply { deleteRecursively(); mkdirs() }
         val zip = File(work, "version.zip")
-        vault.downloadVersion(v.fileId, zip)
+        vault.download(v, zip)
         val c = ImportReader.read(zip, File(work, "x"))
-        check(c.farm == farm) { "Vault file belongs to ${c.farm}, expected $farm" }
-        check(c.md5(farm) + c.md5("SaveGameInfo") == v.id) { "Downloaded version does not match its fingerprint" }
+        check(c.farm == farm) { "Vault file belongs to another farm" }
+        check(c.md5(farm) + c.md5("SaveGameInfo") == v.fingerprint) { "Downloaded version does not match its fingerprint" }
         return c
-    }
-
-    private fun writeDevice(farm: String, has: String?, midday: Boolean, deletedHere: Boolean = false) {
-        val fresh = vault.readManifest(farm) ?: return
-        val entry = DeviceEntry(prefs.deviceName, has, System.currentTimeMillis(), midday, deletedHere)
-        vault.writeManifest(fresh.copy(devices = fresh.devices + (me to entry)))
     }
 }

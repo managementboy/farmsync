@@ -9,12 +9,13 @@ object Retention {
     const val DEFAULT_KEEP = 30
     const val ALWAYS_KEEP_NEWEST = 3
 
+    /** [snapshots] newest first, in the order they were made (not by clock, see SnapshotStore.list). */
     fun selectToDelete(
         snapshots: List<SnapshotMeta>,
         keep: Int = DEFAULT_KEEP,
         alwaysKeepNewest: Int = ALWAYS_KEEP_NEWEST,
     ): List<SnapshotMeta> {
-        val newestFirst = snapshots.sortedByDescending { it.createdAt }
+        val newestFirst = snapshots
         val protected = newestFirst.take(maxOf(alwaysKeepNewest, 0)).map { it.id }.toSet()
         var kept = 0
         val delete = mutableListOf<SnapshotMeta>()

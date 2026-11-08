@@ -40,6 +40,26 @@ class SavePathsTest {
     }
 
     @Test
+    fun rejectsLinksEvenInsideSaves() {
+        val other = File(base(), "Other_2").apply { mkdirs() }
+        java.nio.file.Files.createSymbolicLink(File(base(), "Linked_1").toPath(), other.toPath())
+        assertTrue(rejected("Linked_1/SaveGameInfo"))
+        File(base(), "Real_3").mkdirs()
+        File(other, "x").writeText("other farm's file")
+        java.nio.file.Files.createSymbolicLink(File(base(), "Real_3/SaveGameInfo").toPath(), File(other, "x").toPath())
+        assertTrue(rejected("Real_3/SaveGameInfo"))
+        assertTrue(rejected("Real_3\\x"))
+    }
+
+    @Test
+    fun farmFolderNamesAreLimited() {
+        assertTrue(SavePaths.isFarmFolder("GranjaÑ_123"))
+        assertTrue(SavePaths.isFarmFolder("ñ".repeat(95) + "_123"))
+        assertFalse(SavePaths.isFarmFolder("ñ".repeat(120) + "_123")) // over 200 bytes
+        assertFalse(SavePaths.isFarmFolder("Saves"))
+    }
+
+    @Test
     fun farmFolderNames() {
         assertTrue(SavePaths.isFarmFolder("Certeza_417020443"))
         assertTrue(SavePaths.isFarmFolder("SyncTest_900000001"))

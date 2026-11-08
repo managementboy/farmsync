@@ -1,7 +1,7 @@
 package app.farmsync.companion.ops
 
-import app.farmsync.companion.ISaveFs
 import app.farmsync.companion.saves.Farm
+import app.farmsync.companion.saves.SaveFs
 import app.farmsync.companion.store.SnapshotOrigin
 import app.farmsync.companion.store.SnapshotStore
 import java.io.File
@@ -10,7 +10,7 @@ import java.io.File
 object Exporter {
     private val SEASONS = listOf("Spring", "Summer", "Fall", "Winter")
 
-    fun export(fs: ISaveFs, store: SnapshotStore, farm: Farm, outDir: File): File {
+    fun export(fs: SaveFs, store: SnapshotStore, farm: Farm, outDir: File): File {
         val meta = store.latest(farm.folder)?.takeIf { it.contentHash == farm.contentHash }
             ?: store.create(fs, farm, SnapshotOrigin.MANUAL)
         val info = meta.info

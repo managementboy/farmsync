@@ -19,6 +19,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -40,7 +42,8 @@ import app.farmsync.companion.ui.theme.FarmType
 fun SettingsScreen(state: UiState, vm: FarmListViewModel, snackbar: SnackbarHostState) {
     val c = Farm.colors
     val context = LocalContext.current
-    val log = remember(state.sync.lastSync) { vm.syncLogEntries() }
+    // Read off the main thread; refreshed after each sync.
+    val log by produceState(emptyList<app.farmsync.companion.sync.SyncLog.Entry>(), state.sync.lastSync) { value = vm.syncLogEntries() }
     Scaffold(
         containerColor = c.sky,
         topBar = {
@@ -99,7 +102,7 @@ fun SettingsScreen(state: UiState, vm: FarmListViewModel, snackbar: SnackbarHost
                         val look = syncLook(true, app.farmsync.companion.sync.FarmSyncResult(e.farm, e.outcome, detail = e.detail))
                         Column {
                             Text("${whenText(e.time)} · ${e.farm.substringBeforeLast('_')}", fontSize = 13.sp, color = c.ink2)
-                            Text(look.text + (e.detail?.let { " ($it)" } ?: ""), fontSize = 14.sp, color = look.color)
+                            Text(look.text + (e.detail?.let { " (" + failureText(it) + ")" } ?: ""), fontSize = 14.sp, color = look.color)
                         }
                     }
                 }

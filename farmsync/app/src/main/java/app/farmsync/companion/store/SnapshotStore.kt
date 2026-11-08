@@ -1,9 +1,7 @@
 package app.farmsync.companion.store
 
-import android.os.Build
-import android.os.ParcelFileDescriptor
-import app.farmsync.companion.ISaveFs
 import app.farmsync.companion.saves.Farm
+import app.farmsync.companion.saves.SaveFs
 import org.json.JSONArray
 import java.io.File
 import java.security.DigestInputStream
@@ -11,6 +9,7 @@ import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -22,7 +21,11 @@ class SnapshotException(message: String) : Exception(message)
  * A snapshot only READS from the Saves folder. The zip holds the farm folder exactly as
  * on the device (all files, incl. mid-day files) plus meta.json.
  */
-class SnapshotStore(private val root: File) {
+class SnapshotStore(
+    private val root: File,
+    private val deviceLabel: String = "",
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
 
     private fun farmDir(farm: String) = File(root, farm).apply { mkdirs() }
     private fun indexFile(farm: String) = File(farmDir(farm), "index.json")
@@ -32,8 +35,9 @@ class SnapshotStore(private val root: File) {
         val f = indexFile(farm)
         if (!f.exists()) return emptyList()
         val arr = JSONArray(f.readText())
-        return (0 until arr.length()).map { SnapshotMeta.fromJson(arr.getJSONObject(it)) }
-            .sortedByDescending { it.createdAt }
+        // The index is kept in the order snapshots were made, so newest first = reversed.
+        // Never sorted by clock: a device clock that jumps back must not reorder them (F7).
+        return (0 until arr.length()).map { SnapshotMeta.fromJson(arr.getJSONObject(it)) }.asReversed()
     }
 
     fun latest(farm: String): SnapshotMeta? = list(farm).firstOrNull()
@@ -46,9 +50,10 @@ class SnapshotStore(private val root: File) {
      * saving at that moment). On any mismatch the snapshot is discarded.
      */
     @Synchronized
-    fun create(fs: ISaveFs, farm: Farm, origin: SnapshotOrigin): SnapshotMeta {
-        val now = System.currentTimeMillis()
-        val id = SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.ROOT).format(Date(now))
+    fun create(fs: SaveFs, farm: Farm, origin: SnapshotOrigin): SnapshotMeta {
+        val now = clock()
+        val id = SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.ROOT).format(Date(now)) +
+            "-" + UUID.randomUUID().toString().take(6)
         val dir = farmDir(farm.folder)
         val tmp = File(dir, "$id.zip.tmp")
         val zipOut = File(dir, "$id.zip")
@@ -60,9 +65,7 @@ class SnapshotStore(private val root: File) {
                     val digest = MessageDigest.getInstance("MD5")
                     zip.putNextEntry(ZipEntry(rel))
                     var size = 0L
-                    DigestInputStream(
-                        ParcelFileDescriptor.AutoCloseInputStream(fs.openRead(rel)), digest
-                    ).use { input ->
+                    DigestInputStream(fs.openRead(rel), digest).use { input ->
                         val buf = ByteArray(64 * 1024)
                         while (true) {
                             val n = input.read(buf)
@@ -81,7 +84,7 @@ class SnapshotStore(private val root: File) {
                 }
                 val meta = SnapshotMeta(
                     id = id, farm = farm.folder, createdAt = now, origin = origin,
-                    device = "${Build.MANUFACTURER} ${Build.MODEL}", info = farm.info,
+                    device = deviceLabel, info = farm.info,
                     fingerprint = fingerprintOf(farm.folder, files),
                     contentHash = contentHashOf(files), files = files,
                 )
@@ -92,13 +95,13 @@ class SnapshotStore(private val root: File) {
             }
             if (!tmp.renameTo(zipOut)) throw SnapshotException("Could not store snapshot")
             verifyZip(zipOut, files)
-            writeIndex(farm.folder, list(farm.folder) + meta)
+            writeIndex(farm.folder, (list(farm.folder).asReversed()) + meta)
         } catch (e: Exception) {
             tmp.delete()
             zipOut.delete()
             throw e
         }
-        prune(farm.folder)
+        prune(farm.folder, keep = id)
         return list(farm.folder).first { it.id == id }
     }
 
@@ -131,22 +134,24 @@ class SnapshotStore(private val root: File) {
 
     @Synchronized
     fun setPinned(meta: SnapshotMeta, pinned: Boolean) {
-        writeIndex(meta.farm, list(meta.farm).map { if (it.id == meta.id) it.copy(pinned = pinned) else it })
+        writeIndex(meta.farm, list(meta.farm).asReversed().map { if (it.id == meta.id) it.copy(pinned = pinned) else it })
     }
 
     @Synchronized
-    private fun prune(farm: String) {
+    private fun prune(farm: String, keep: String) {
         val all = list(farm)
-        val delete = Retention.selectToDelete(all)
+        // The snapshot just made is never pruned in the same call (it may be a pre-write copy).
+        val delete = Retention.selectToDelete(all).filter { it.id != keep }
         if (delete.isEmpty()) return
         delete.forEach { zipFile(it).delete() }
         val ids = delete.map { it.id }.toSet()
-        writeIndex(farm, all.filter { it.id !in ids })
+        writeIndex(farm, all.asReversed().filter { it.id !in ids })
     }
 
+    /** [metas] oldest first, in the order they were made. */
     private fun writeIndex(farm: String, metas: List<SnapshotMeta>) {
         val arr = JSONArray()
-        metas.sortedBy { it.createdAt }.forEach { arr.put(it.toJson()) }
+        metas.forEach { arr.put(it.toJson()) }
         val f = indexFile(farm)
         val tmp = File(f.parentFile, "index.json.tmp")
         tmp.writeText(arr.toString(1))

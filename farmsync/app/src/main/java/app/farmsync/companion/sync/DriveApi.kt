@@ -8,7 +8,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-class DriveException(val code: Int, message: String) : Exception("Drive $code: $message")
+/**
+ * A Drive error. Only the status code and Google's short machine reason (letters only) are
+ * kept: the response body can contain account details and is never stored or shown.
+ */
+class DriveException(val code: Int, val reason: String) : Exception("drive_$code" + if (reason.isEmpty()) "" else "_$reason")
 
 data class DriveFile(
     val id: String,
@@ -54,17 +58,43 @@ class DriveApi(private val token: String) {
 
     /** Creates a new file with content in one multipart request. */
     fun upload(name: String, parent: String, mime: String, content: ByteArray, appProperties: Map<String, String>): DriveFile {
+        val tmp = File.createTempFile("upload", null)
+        return try {
+            tmp.writeBytes(content)
+            upload(name, parent, mime, tmp, appProperties)
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    /** Creates a new file, streaming [content] from disk (never held in memory as a whole). */
+    fun upload(name: String, parent: String, mime: String, content: File, appProperties: Map<String, String>): DriveFile {
         val meta = JSONObject().put("name", name).put("parents", JSONArray().put(parent))
             .put("appProperties", JSONObject(appProperties))
         val boundary = "farmsync" + System.nanoTime()
-        val body = buildString {
+        val head = buildString {
             append("--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n")
             append(meta.toString()).append("\r\n")
             append("--$boundary\r\nContent-Type: $mime\r\n\r\n")
-        }.toByteArray() + content + "\r\n--$boundary--\r\n".toByteArray()
-        return JSONObject(
-            send("POST", "$UPLOAD/files?uploadType=multipart&fields=$FIELDS", "multipart/related; boundary=$boundary", body)
-        ).toDriveFile()
+        }.toByteArray()
+        val tail = "\r\n--$boundary--\r\n".toByteArray()
+        val c = connect("POST", "$UPLOAD/files?uploadType=multipart&fields=$FIELDS")
+        c.doOutput = true
+        c.setRequestProperty("Content-Type", "multipart/related; boundary=$boundary")
+        c.setFixedLengthStreamingMode(head.size + content.length() + tail.size)
+        c.outputStream.use { out ->
+            out.write(head)
+            content.inputStream().use { it.copyTo(out, 64 * 1024) }
+            out.write(tail)
+        }
+        return JSONObject(response(c).use { it.readBytes().decodeToString() }).toDriveFile()
+    }
+
+    /** Sets (or with a null value removes) app properties of a file; other properties stay. */
+    fun updateAppProperties(fileId: String, appProperties: Map<String, String?>) {
+        val props = JSONObject().apply { appProperties.forEach { (k, v) -> put(k, v ?: JSONObject.NULL) } }
+        send("PATCH", "$API/files/$fileId?fields=id", "application/json",
+            JSONObject().put("appProperties", props).toString().toByteArray())
     }
 
     fun updateContent(fileId: String, mime: String, content: ByteArray) {
@@ -73,9 +103,20 @@ class DriveApi(private val token: String) {
 
     fun downloadText(fileId: String): String = get("$API/files/$fileId?alt=media")
 
-    fun downloadTo(fileId: String, dest: File) {
+    /** Downloads at most [maxBytes]; a larger file fails before it can fill the device. */
+    fun downloadTo(fileId: String, dest: File, maxBytes: Long) {
         open("GET", "$API/files/$fileId?alt=media", null, null).use { input ->
-            dest.outputStream().use { input.copyTo(it) }
+            var total = 0L
+            dest.outputStream().use { out ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    total += n
+                    if (total > maxBytes) throw DriveException(413, "tooLarge")
+                    out.write(buf, 0, n)
+                }
+            }
         }
     }
 
@@ -85,6 +126,17 @@ class DriveApi(private val token: String) {
         open(method, url, contentType, body).use { it.readBytes().decodeToString() }
 
     private fun open(method: String, url: String, contentType: String?, body: ByteArray?): InputStream {
+        val c = connect(method, url)
+        if (body != null) {
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", contentType)
+            c.setFixedLengthStreamingMode(body.size)
+            c.outputStream.use { it.write(body) }
+        }
+        return response(c)
+    }
+
+    private fun connect(method: String, url: String): HttpURLConnection {
         val c = URL(url).openConnection() as HttpURLConnection
         if (method == "PATCH") {
             c.requestMethod = "POST"
@@ -95,17 +147,20 @@ class DriveApi(private val token: String) {
         c.connectTimeout = 20_000
         c.readTimeout = 60_000
         c.setRequestProperty("Authorization", "Bearer $token")
-        if (body != null) {
-            c.doOutput = true
-            c.setRequestProperty("Content-Type", contentType)
-            c.setFixedLengthStreamingMode(body.size)
-            c.outputStream.use { it.write(body) }
-        }
+        return c
+    }
+
+    private fun response(c: HttpURLConnection): InputStream {
         val code = c.responseCode
         if (code !in 200..299) {
-            val err = c.errorStream?.use { it.readBytes().decodeToString() }.orEmpty()
+            val reason = c.errorStream?.use { s ->
+                runCatching {
+                    JSONObject(s.readBytes().decodeToString()).getJSONObject("error")
+                        .optJSONArray("errors")?.optJSONObject(0)?.optString("reason").orEmpty()
+                }.getOrDefault("")
+            }.orEmpty().filter { it.isLetter() }.take(40)
             c.disconnect()
-            throw DriveException(code, err.take(300))
+            throw DriveException(code, reason)
         }
         return c.inputStream
     }

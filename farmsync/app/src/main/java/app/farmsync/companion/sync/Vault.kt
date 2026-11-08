@@ -1,84 +1,134 @@
 package app.farmsync.companion.sync
 
+import app.farmsync.companion.ops.ImportReader
+import app.farmsync.companion.shizuku.SavePaths
 import org.json.JSONObject
+import java.io.File
+import java.security.MessageDigest
 import java.util.UUID
+
+/** Where versions live. Drive in the app ([Vault]); an in-memory fake in tests. */
+interface VersionVault {
+    /** Farms with at least one folder in the vault. */
+    fun farms(): List<String>
+    /** Every version of [farm], from every folder that belongs to it. */
+    fun versions(farm: String): List<VersionEntry>
+    /** Uploads [zip] as a new version described by [v]; returns it with its file id. */
+    fun upload(farm: String, v: VersionEntry, zip: File): VersionEntry
+    /** Marks a version as having lost a conflict (its only change after upload). */
+    fun markLost(v: VersionEntry)
+    fun download(v: VersionEntry, dest: File)
+}
 
 /**
  * The vault in the user's Drive:
- *   "Farm Sync"/                         folder, appProperties farmsync=vault
- *     vault.json                         {vaultId, created}
- *     <Farm_ID>/                         folder, appProperties farmsyncFarm=<Farm_ID>
- *       manifest.json                    the farm's logbook (Manifest)
- *       <fingerprint>.zip                one zip per save version (same format as snapshots)
+ *   "Farm Sync"/                       folder, appProperties farmsync=vault
+ *     vault.json                       {vaultId, created}
+ *     <Farm_ID>/                       folder named after the farm, appProperties fsk=<key>
+ *       <versionId>.zip                one zip per version (same format as snapshots); its
+ *                                      appProperties describe it (see VersionProps)
+ *
+ * There is no shared file that devices rewrite: each upload is a new, immutable file, so two
+ * devices syncing at the same moment can never overwrite each other's history. If two devices
+ * create a farm's folder at the same moment, both folders are read as one farm.
+ *
+ * Farms are looked up by a short key (hash of the folder name) because Drive limits a property
+ * to 124 bytes and farm names can be long. Vaults from 0.9.x (farmsyncFarm=<name>, a shared
+ * manifest.json) are read too and migrated once, without deleting anything.
  */
 class Vault private constructor(
     private val api: DriveApi,
     val folderId: String,
     val vaultId: String,
-) {
-    private val farmFolders = HashMap<String, String>()
-    private val manifestFiles = HashMap<String, String>()
+) : VersionVault {
 
-    /** Farm folders present in the vault. */
-    fun farms(): List<String> =
+    override fun farms(): List<String> =
         api.query("'$folderId' in parents and mimeType='${DriveApi.FOLDER}' and trashed=false")
-            .mapNotNull { f -> f.appProperties[PROP_FARM]?.also { farmFolders[it] = f.id } }
+            .mapNotNull { f -> (f.appProperties[PROP_FARM_LEGACY] ?: f.name.takeIf { PROP_KEY in f.appProperties }) }
+            .filter { SavePaths.isFarmFolder(it) }
             .distinct()
 
-    fun readManifest(farm: String): Manifest? {
-        val id = manifestFileId(farm) ?: return null
-        return Manifest.fromJson(JSONObject(api.downloadText(id)))
+    override fun versions(farm: String): List<VersionEntry> {
+        val folders = farmFolders(farm)
+        if (folders.isEmpty()) return emptyList()
+        migrateLegacy(folders)
+        return api.query("(${inAny(folders)}) and trashed=false and appProperties has {key='${VersionProps.MARK}' and value='${VersionProps.FORMAT}'}")
+            .mapNotNull { VersionProps.decode(it.id, it.appProperties) }
+            .distinctBy { it.id }
     }
 
-    fun writeManifest(m: Manifest) {
-        val bytes = m.toJson().toString(1).toByteArray()
-        val existing = manifestFileId(m.farm)
-        if (existing != null) {
-            api.updateContent(existing, "application/json", bytes)
-        } else {
-            val f = api.upload("manifest.json", farmFolder(m.farm, create = true)!!, "application/json", bytes,
-                mapOf(PROP_FILE to "manifest", PROP_FARM to m.farm))
-            manifestFiles[m.farm] = f.id
+    override fun upload(farm: String, v: VersionEntry, zip: File): VersionEntry {
+        val folder = farmFolders(farm).firstOrNull() ?: run {
+            api.createFolder(farm, folderId, mapOf(PROP_KEY to farmKey(farm)))
+            // Another device may have created one at the same moment: always use the oldest.
+            farmFolders(farm).first()
+        }
+        val f = api.upload("${v.id}.zip", folder, "application/zip", zip, VersionProps.encode(v))
+        return v.copy(fileId = f.id)
+    }
+
+    override fun markLost(v: VersionEntry) = api.updateAppProperties(v.fileId, mapOf("lost" to "1"))
+
+    override fun download(v: VersionEntry, dest: File) = api.downloadTo(v.fileId, dest, ImportReader.MAX_ZIP_BYTES)
+
+    /** Every folder of [farm], oldest first. */
+    private fun farmFolders(farm: String): List<String> {
+        val byKey = "appProperties has {key='$PROP_KEY' and value='${farmKey(farm)}'}"
+        val legacyFits = (PROP_FARM_LEGACY + farm).toByteArray(Charsets.UTF_8).size <= 124
+        val match = if (legacyFits) "($byKey or appProperties has {key='$PROP_FARM_LEGACY' and value='${DriveApi.q(farm)}'})" else byKey
+        return api.query("'$folderId' in parents and mimeType='${DriveApi.FOLDER}' and trashed=false and $match")
+            .sortedBy { it.createdTime }.map { it.id }
+    }
+
+    /**
+     * Moves a 0.9.x manifest's history onto the zips' own properties. Idempotent: every device
+     * computes the same properties, and the manifest is marked as done (never deleted).
+     */
+    private fun migrateLegacy(folders: List<String>) {
+        val manifests = api.query("(${inAny(folders)}) and trashed=false and appProperties has {key='$PROP_FILE' and value='manifest'}")
+            .filter { it.appProperties[PROP_MIGRATED] != MIGRATED }
+        if (manifests.isEmpty()) return
+        // Drive can only match a property together with its value, so filter by key here.
+        val legacyZips = api.query("(${inAny(folders)}) and trashed=false and mimeType='application/zip'")
+            .filter { PROP_VERSION_LEGACY in it.appProperties }
+        val done = HashSet<String>()
+        for (m in manifests) {
+            val legacy = LegacyManifest.fromJson(JSONObject(api.downloadText(m.id)))
+            for (v in LegacyManifest.toVersions(legacy)) {
+                val zip = legacyZips.firstOrNull { it.id == v.fileId } ?: continue
+                if (VersionProps.MARK in zip.appProperties || !done.add(v.id)) continue
+                api.updateAppProperties(v.fileId, VersionProps.encode(v))
+            }
+            api.updateAppProperties(m.id, mapOf(PROP_MIGRATED to MIGRATED))
+        }
+        // Zips no manifest knew about (lost by an old overlapping write): kept, marked lost.
+        for (z in legacyZips) {
+            if (VersionProps.MARK in z.appProperties) continue
+            val fp = z.appProperties[PROP_VERSION_LEGACY] ?: continue
+            val id = LegacyManifest.migratedId(fp)
+            if (!done.add(id)) continue
+            api.updateAppProperties(z.id, VersionProps.encode(
+                VersionEntry(id, fp, z.id, emptyList(), "", "", 0L, 0L, null, lost = true)
+            ))
         }
     }
 
-    /** Uploads a version zip unless it is already there; returns its file id. */
-    fun uploadVersion(farm: String, versionId: String, zip: ByteArray): String {
-        val folder = farmFolder(farm, create = true)!!
-        api.query("'$folder' in parents and appProperties has {key='$PROP_VERSION' and value='${DriveApi.q(versionId)}'} and trashed=false")
-            .firstOrNull()?.let { return it.id }
-        return api.upload("$versionId.zip", folder, "application/zip", zip,
-            mapOf(PROP_VERSION to versionId, PROP_FARM to farm)).id
-    }
-
-    fun downloadVersion(fileId: String, dest: java.io.File) = api.downloadTo(fileId, dest)
-
-    private fun farmFolder(farm: String, create: Boolean): String? {
-        farmFolders[farm]?.let { return it }
-        val found = api.query(
-            "'$folderId' in parents and appProperties has {key='$PROP_FARM' and value='${DriveApi.q(farm)}'} " +
-                "and mimeType='${DriveApi.FOLDER}' and trashed=false"
-        ).firstOrNull()?.id
-        val id = found ?: if (create) api.createFolder(farm, folderId, mapOf(PROP_FARM to farm)).id else null
-        if (id != null) farmFolders[farm] = id
-        return id
-    }
-
-    private fun manifestFileId(farm: String): String? {
-        manifestFiles[farm]?.let { return it }
-        val folder = farmFolder(farm, create = false) ?: return null
-        val id = api.query("'$folder' in parents and appProperties has {key='$PROP_FILE' and value='manifest'} and trashed=false")
-            .firstOrNull()?.id
-        if (id != null) manifestFiles[farm] = id
-        return id
-    }
+    private fun inAny(folders: List<String>) = folders.joinToString(" or ") { "'$it' in parents" }
 
     companion object {
         const val NAME = "Farm Sync"
         private const val PROP_ROOT = "farmsync"
-        private const val PROP_FARM = "farmsyncFarm"
+        private const val PROP_KEY = "fsk"
+        private const val PROP_FARM_LEGACY = "farmsyncFarm"
         private const val PROP_FILE = "farmsyncFile"
-        private const val PROP_VERSION = "farmsyncVersion"
+        private const val PROP_VERSION_LEGACY = "farmsyncVersion"
+        private const val PROP_MIGRATED = "fsMigrated"
+        private const val MIGRATED = "2"
+
+        /** Short, fixed-length lookup key for a farm folder name. */
+        fun farmKey(farm: String): String =
+            MessageDigest.getInstance("MD5").digest(farm.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }.take(16)
 
         /**
          * Finds the vault in the account. Several vaults (should not happen) → the oldest one.
@@ -97,7 +147,7 @@ class Vault private constructor(
             val folder = api.createFolder(NAME, null, mapOf(PROP_ROOT to "vault"))
             val vaultId = UUID.randomUUID().toString()
             val json = JSONObject().put("vaultId", vaultId).put("created", System.currentTimeMillis())
-                .put("app", "Farm Sync").put("format", 1)
+                .put("app", "Farm Sync").put("format", 2)
             api.upload("vault.json", folder.id, "application/json", json.toString(1).toByteArray(),
                 mapOf(PROP_FILE to "vault"))
             return Vault(api, folder.id, vaultId)

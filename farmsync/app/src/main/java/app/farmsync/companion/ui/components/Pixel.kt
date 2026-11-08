@@ -174,15 +174,21 @@ fun PixelButton(
     }
 }
 
-/** Square pixel toggle; behaves and announces like a standard switch. */
+/**
+ * Square pixel toggle; behaves and announces like a standard switch. With [onCheckedChange]
+ * null it is only the visual, and the surrounding row (with its label) is the switch.
+ */
 @Composable
-fun PixelSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit, enabled: Boolean = true) {
+fun PixelSwitch(checked: Boolean, onCheckedChange: ((Boolean) -> Unit)?, enabled: Boolean = true) {
     val c = Farm.colors
     Box(
         modifier = Modifier
             .size(60.dp, 36.dp)
             .pixelFrame(if (checked) c.meadow else c.shade, if (checked) c.buttonFrame else c.ink2, border = 3.dp)
-            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+            .then(
+                if (onCheckedChange != null) Modifier.toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+                else Modifier
+            )
             .padding(3.dp),
         contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
     ) {

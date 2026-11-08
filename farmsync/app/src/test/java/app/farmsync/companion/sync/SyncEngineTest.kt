@@ -1,0 +1,205 @@
+package app.farmsync.companion.sync
+
+import app.farmsync.companion.store.SnapshotOrigin
+import app.farmsync.companion.testing.Device
+import app.farmsync.companion.testing.FakeVault
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
+
+/**
+ * Two simulated devices sharing one vault. Covers Codex review F2, F3, F10–F13 end to end:
+ * no version is ever lost from the vault, both devices agree, and no play is overwritten.
+ */
+class SyncEngineTest {
+    @get:Rule val tmp = TemporaryFolder()
+
+    private val farm = "Test_123"
+    private lateinit var vault: FakeVault
+    private lateinit var phone: Device
+    private lateinit var tablet: Device
+
+    @Before
+    fun setUp() {
+        vault = FakeVault(File(tmp.root, "drive"))
+        phone = Device(tmp.root, "phone")
+        tablet = Device(tmp.root, "tablet")
+    }
+
+    private fun engine(d: Device) = SyncEngine(d.fs, d.store, vault, d.state, d.temp, "1.6.15.3", d.journal) { d.clock++ }
+    private fun sync(d: Device, allowMidday: Boolean = false) = engine(d).sync(d.fs.farm(farm), farm, allowMidday)
+    private fun day(d: Device) = d.fs.farm(farm)!!.info!!.day
+    private fun fp(d: Device) = d.fs.farm(farm)!!.fingerprint
+    private fun head() = VersionGraph.head(vault.versions(farm))!!
+
+    /** Both devices on day 5, synced. */
+    private fun shared() {
+        phone.fs.writeFarm(farm, day = 5, playedMs = 5000)
+        assertEquals(Outcome.UPLOADED, sync(phone).outcome)
+        assertEquals(Outcome.DOWNLOADED, engine(tablet).downloadNew(farm).outcome)
+        assertEquals(fp(phone), fp(tablet))
+    }
+
+    @Test
+    fun playOnOneDeviceReachesTheOther() {
+        shared()
+        tablet.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        assertEquals(Outcome.UPLOADED, sync(tablet).outcome)
+        assertEquals(Outcome.DOWNLOADED, sync(phone).outcome)
+        assertEquals(6, day(phone))
+        assertEquals(Outcome.UP_TO_DATE, sync(phone).outcome)
+        assertEquals(Outcome.UP_TO_DATE, sync(tablet).outcome)
+    }
+
+    @Test
+    fun conflictKeepsBothVersionsAndBothDevicesAgree() {
+        shared()
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        tablet.fs.writeFarm(farm, day = 7, playedMs = 7000) // played longer
+        assertEquals(Outcome.UPLOADED, sync(phone).outcome)
+        assertEquals(Outcome.RESOLVED_KEPT_LOCAL, sync(tablet).outcome)
+        assertEquals(Outcome.DOWNLOADED, sync(phone).outcome)
+        assertEquals(7, day(phone))
+        assertEquals(7, day(tablet))
+        // Nothing lost: both lines are in the vault, and the phone kept a snapshot of its day 6.
+        assertEquals(setOf(5, 6, 7), vault.versions(farm).map { it.info!!.day }.toSet())
+        assertTrue(phone.store.list(farm).any { it.info?.day == 6 && it.origin == SnapshotOrigin.BEFORE_SYNC })
+    }
+
+    @Test
+    fun conflictDecisionDoesNotDependOnWhoSyncsFirst() {
+        shared()
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        tablet.fs.writeFarm(farm, day = 7, playedMs = 7000)
+        assertEquals(Outcome.UPLOADED, sync(tablet).outcome)
+        assertEquals(Outcome.RESOLVED_TOOK_REMOTE, sync(phone).outcome)
+        assertEquals(7, day(phone))
+        assertEquals(Outcome.UP_TO_DATE, sync(tablet).outcome)
+    }
+
+    @Test
+    fun theLosingLineNeverComesBack() {
+        shared()
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        tablet.fs.writeFarm(farm, day = 7, playedMs = 7000)
+        sync(phone); sync(tablet); sync(phone)
+        tablet.fs.writeFarm(farm, day = 8, playedMs = 8000)
+        sync(tablet)
+        assertEquals(Outcome.DOWNLOADED, sync(phone).outcome)
+        assertEquals(8, day(phone))
+        assertEquals(8, head().info!!.day)
+    }
+
+    @Test
+    fun simultaneousIdenticalSavesAreNotAConflict() {
+        shared()
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        tablet.fs.writeFarm(farm, day = 6, playedMs = 6000) // exactly the same save
+        val before = vault.all.toList()
+        assertEquals(Outcome.UPLOADED, sync(phone).outcome)
+        vault.staleOnce = before // the tablet decided before it could see the phone's upload
+        val r = sync(tablet)
+        assertEquals(Outcome.UPLOADED, r.outcome)
+        assertEquals(1, tablet.fs.commits) // only the first download; nothing rewritten now
+        assertEquals(Outcome.UP_TO_DATE, sync(phone).outcome)
+    }
+
+    @Test
+    fun identicalSaveAlreadyInTheVaultIsUpToDate() {
+        shared()
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        tablet.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        sync(phone)
+        val commits = tablet.fs.commits
+        assertEquals(Outcome.UP_TO_DATE, sync(tablet).outcome)
+        assertEquals(commits, tablet.fs.commits)
+    }
+
+    @Test
+    fun aDeliberateRestoreBecomesTheSharedVersion() {
+        shared()
+        tablet.fs.writeFarm(farm, day = 9, playedMs = 9000)
+        sync(tablet); sync(phone)
+        assertEquals(9, day(phone))
+        // The phone goes back to day 5 on purpose (a version the vault already knows).
+        val old = phone.store.list(farm).first { it.info?.day == 5 }
+        app.farmsync.companion.ops.SaveOps(phone.fs, phone.store, phone.temp, phone.journal).restore(old, "1.6.15.3")
+        phone.state.setForced(farm, true)
+        assertEquals(Outcome.UPLOADED, sync(phone).outcome)
+        assertEquals(5, day(phone)) // not undone
+        assertEquals(Outcome.DOWNLOADED, sync(tablet).outcome)
+        assertEquals(5, day(tablet))
+        assertFalse(phone.state.isForced(farm))
+    }
+
+    @Test
+    fun playingDuringADownloadIsNeverOverwritten() {
+        shared()
+        tablet.fs.writeFarm(farm, day = 9, playedMs = 9000)
+        sync(tablet)
+        vault.duringDownload = { vault.duringDownload = null; phone.fs.writeFarm(farm, day = 6, playedMs = 6000) }
+        assertEquals(Outcome.RETRY_LATER, sync(phone).outcome)
+        assertEquals(6, day(phone)) // the day just played is still there
+        assertFalse(phone.journal.has(farm))
+        // Next time it is new play here, so it is uploaded first, then the conflict is decided.
+        assertEquals(Outcome.RESOLVED_TOOK_REMOTE, sync(phone).outcome)
+        assertTrue(vault.versions(farm).any { it.info?.day == 6 })
+    }
+
+    @Test
+    fun middayProgressWaitsUntilAllowed() {
+        shared()
+        tablet.fs.writeFarm(farm, day = 9, playedMs = 9000)
+        sync(tablet)
+        phone.fs.writeFarm(farm, day = 5, playedMs = 5000, midday = true)
+        assertEquals(Outcome.WAITING_MIDDAY, sync(phone).outcome)
+        assertTrue(phone.fs.hasPointer(farm))
+        assertEquals(Outcome.DOWNLOADED, sync(phone, allowMidday = true).outcome)
+        assertEquals(9, day(phone))
+        assertFalse(phone.fs.hasPointer(farm))
+    }
+
+    @Test
+    fun anUploadDriveDoesNotShowYetIsReusedNotRepeated() {
+        phone.fs.writeFarm(farm, day = 5, playedMs = 5000)
+        vault.hideUploadsFor = 1
+        assertEquals("not_visible", sync(phone).detail)
+        assertNull(phone.state.base(farm))
+        vault.hideUploadsFor = 0
+        assertEquals(Outcome.UP_TO_DATE, sync(phone).outcome) // now visible: recorded, not uploaded twice
+        assertEquals(1, vault.all.size)
+        assertEquals(vault.all.single().id, phone.state.base(farm))
+    }
+
+    @Test
+    fun aFarmDeletedHereIsNotRecreated() {
+        shared()
+        File(tablet.fs.root, farm).deleteRecursively()
+        assertEquals(Outcome.DELETED_HERE, engine(tablet).sync(null, farm).outcome)
+        assertNull(tablet.fs.farm(farm))
+    }
+
+    @Test
+    fun aFarmWithAnUnrepairedWriteIsNotSynced() {
+        shared()
+        tablet.journal.save(app.farmsync.companion.ops.JournalEntry(farm, app.farmsync.companion.ops.JournalEntry.Kind.REPLACE,
+            null, emptyMap(), emptyMap(), 0L))
+        assertEquals(Outcome.NEEDS_REPAIR, sync(tablet).outcome)
+    }
+
+    @Test
+    fun aSaveFromANewerGameIsNotDownloaded() {
+        phone.fs.writeFarm(farm, day = 5, playedMs = 5000, version = "1.7.0")
+        sync(phone)
+        val r = engine(tablet).downloadNew(farm)
+        assertEquals(Outcome.FAILED, r.outcome)
+        assertEquals("newer_game_version", r.detail)
+        assertNull(tablet.fs.farm(farm))
+    }
+}

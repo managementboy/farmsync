@@ -7,16 +7,19 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import app.farmsync.companion.ISaveFs
 import app.farmsync.companion.ops.Exporter
 import app.farmsync.companion.ops.ImportCandidate
 import app.farmsync.companion.ops.ImportException
 import app.farmsync.companion.ops.ImportReader
 import app.farmsync.companion.ops.OpBlocked
 import app.farmsync.companion.ops.OpFailed
+import app.farmsync.companion.ops.Recovery
 import app.farmsync.companion.ops.SaveOps
+import app.farmsync.companion.ops.WriteJournal
+import app.farmsync.companion.saves.AidlSaveFs
 import app.farmsync.companion.saves.Farm
 import app.farmsync.companion.saves.FarmScanner
+import app.farmsync.companion.saves.SaveFs
 import app.farmsync.companion.shizuku.SaveFsService
 import app.farmsync.companion.shizuku.ShizukuGate
 import app.farmsync.companion.shizuku.ShizukuStatus
@@ -100,17 +103,24 @@ sealed interface Message {
     data object VaultMismatch : Message
     data object ShizukuMissing : Message
     data class SyncDone(val uploaded: Int, val downloaded: Int, val resolved: Int, val attention: Int) : Message
+    /** Interrupted writes found at start and what was done; [since] = when each write began. */
+    data class Recovered(val items: List<Pair<String, Recovery>>, val since: Map<String, Long>) : Message
 }
 
 class FarmListViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state
-    private val store = SnapshotStore(File(app.filesDir, "snapshots"))
+    private val store = SnapshotStore(File(app.filesDir, "snapshots"), "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+    private val journal = WriteJournal(File(app.filesDir, "journal"))
     private val cacheDir get() = getApplication<Application>().cacheDir
     private val syncPrefs = SyncPrefs(app)
     /** What to run once the user finished Google's chooser/consent. */
     private var afterAuth: ((String) -> Unit)? = null
+    /** A Google authorization is in progress: further requests wait for it instead of racing (F17). */
+    private var authInFlight = false
+
+    private fun ops(fs: SaveFs) = SaveOps(fs, store, cacheDir, journal)
 
     init {
         // Show the last known sync status per farm (also after the app was closed).
@@ -130,12 +140,15 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     fun linkDrive() = withToken(email = null) { token -> finishLink(token) }
 
     fun onAuthResult(data: Intent?) {
-        val next = afterAuth ?: return
+        authInFlight = false
+        // After Android recreated the app while Google's screen was open, the original request
+        // is gone: continue with the safe default (finish linking, or a normal sync).
+        val next = afterAuth ?: { token: String -> if (syncPrefs.email == null) finishLink(token) else syncNow() }
         afterAuth = null
         try {
             next(DriveAuth.tokenFromResult(getApplication(), data))
         } catch (e: Exception) {
-            _state.update { it.copy(message = Message.Failed(e.message ?: "Drive")) }
+            _state.update { it.copy(message = Message.Failed(SyncRunner.reasonCode(e))) }
         }
     }
 
@@ -158,6 +171,8 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     fun cancelCreateVault() = _state.update { it.copy(sync = it.sync.copy(confirmCreateVaultFor = null)) }
 
     fun unlinkDrive() {
+        afterAuth = null
+        authInFlight = false
         syncPrefs.unlink()
         _state.update { it.copy(sync = SyncUi(disabled = syncPrefs.disabled)) }
     }
@@ -173,7 +188,8 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
      * back ([quiet] = only report if something happened), and from the button.
      */
     fun syncNow(quiet: Boolean = false) = withDrive { engine, vault ->
-        val report = SyncRunner.lock.withLock { SyncRunner.run(engine, vault, _state.value.farms, syncPrefs) }
+        val unfinished = _state.value.farms.map { it.folder }.filter { journal.get(it)?.kind == app.farmsync.companion.ops.JournalEntry.Kind.NEW_FARM }.toSet()
+        val report = SyncRunner.lock.withLock { SyncRunner.run(engine, vault, _state.value.farms, syncPrefs::isEnabled, unfinished) }
         val results = report.results
         SyncRunner.log(getApplication()).append(if (quiet) "auto" else "button", results.values)
         _state.update {
@@ -185,7 +201,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
             downloaded = results.values.count { it.outcome == Outcome.DOWNLOADED },
             resolved = results.values.count { it.outcome in setOf(Outcome.RESOLVED_KEPT_LOCAL, Outcome.RESOLVED_TOOK_REMOTE) },
             attention = results.values.count {
-                it.outcome in setOf(Outcome.CONFLICT, Outcome.BLOCKED_GAME_RUNNING, Outcome.FAILED)
+                it.outcome in setOf(Outcome.BLOCKED_GAME_RUNNING, Outcome.FAILED, Outcome.NEEDS_REPAIR)
             },
         )
         if (quiet && done.uploaded + done.downloaded + done.resolved + done.attention == 0) null else done
@@ -202,10 +218,10 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
         syncNow(quiet = true)
     }
 
-    /** The user decided a conflict (or allowed a download over mid-day progress). */
-    fun resolve(farm: String, keepLocal: Boolean) = withDrive { engine, _ ->
+    /** The user allowed a newer day to replace this device's unsaved mid-day progress. */
+    fun downloadAnyway(farm: String) = withDrive { engine, _ ->
         val local = _state.value.farms.first { it.folder == farm }
-        val r = SyncRunner.lock.withLock { if (keepLocal) engine.keepLocal(local) else engine.keepRemote(local) }
+        val r = SyncRunner.lock.withLock { engine.sync(local, farm, allowMidday = true) }
         SyncRunner.log(getApplication()).append("user", listOf(r))
         _state.update { it.copy(sync = it.sync.copy(results = it.sync.results + (farm to r))) }
         null
@@ -217,7 +233,8 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
         _state.update {
             it.copy(sync = it.sync.copy(
                 results = it.sync.results + (farm to r),
-                available = it.sync.available.filterNot { a -> a.farm == farm },
+                // Only a finished download leaves the list; otherwise it stays there to retry.
+                available = if (r.outcome == Outcome.DOWNLOADED) it.sync.available.filterNot { a -> a.farm == farm } else it.sync.available,
                 disabled = syncPrefs.disabled,
             ))
         }
@@ -249,17 +266,23 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Gets a Drive token for [email]; if Google needs the user, launches its UI first. */
     private fun withToken(email: String?, block: (String) -> Unit) {
+        if (authInFlight) return // one Google request at a time; this one comes back by itself
+        authInFlight = true
         viewModelScope.launch {
             try {
                 when (val o = DriveAuth.authorize(getApplication(), email)) {
-                    is AuthOutcome.Token -> block(o.accessToken)
+                    is AuthOutcome.Token -> {
+                        authInFlight = false
+                        block(o.accessToken)
+                    }
                     is AuthOutcome.NeedsUser -> {
-                        afterAuth = block
+                        afterAuth = block // stays in flight until onAuthResult
                         _state.update { it.copy(sync = it.sync.copy(pendingAuth = o.intent)) }
                     }
                 }
             } catch (e: Exception) {
-                _state.update { it.copy(message = Message.Failed(e.message ?: "Drive")) }
+                authInFlight = false
+                _state.update { it.copy(message = Message.Failed(SyncRunner.reasonCode(e))) }
             }
         }
     }
@@ -272,7 +295,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
                 val api = DriveApi(token)
                 val vault = Vault.find(api)
                 if (vault == null || vault.vaultId != syncPrefs.vaultId) return@runBusy Message.VaultMismatch
-                block(SyncEngine(fs, store, vault, syncPrefs, cacheDir, _state.value.gameVersion), vault)
+                block(SyncEngine(fs, store, vault, syncPrefs, cacheDir, _state.value.gameVersion, journal), vault)
             }
         }
     }
@@ -294,11 +317,14 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(loading = true) }
         viewModelScope.launch {
             try {
-                val fs = withContext(Dispatchers.IO) { ShizukuGate.saveFs() }
+                val fs: SaveFs = withContext(Dispatchers.IO) { AidlSaveFs(ShizukuGate.saveFs()) }
+                // First of all: finish or undo writes that were interrupted (app killed, phone
+                // off), before any snapshot or sync looks at those farms.
+                recoverInterrupted(fs)
                 scanInto(fs)
                 // On every return to the app, not just at start: a farm played in between gets
                 // its snapshot even if Farm Sync stayed in memory. Unchanged farms are skipped.
-                snapshotChanged(fs, _state.value.farms, SnapshotOrigin.AUTO_OPEN, quietIfNone = true)
+                snapshotChanged(fs, _state.value.farms.filter { !journal.has(it.folder) }, SnapshotOrigin.AUTO_OPEN, quietIfNone = true)
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.message ?: e.javaClass.simpleName) }
             } finally {
@@ -314,14 +340,18 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Manual snapshot of one farm, or of all farms when [farm] is null. Always creates one. */
     fun snapshotNow(farm: String?) = runBusy { fs ->
-        val targets = _state.value.farms.filter { it.isComplete && (farm == null || it.folder == farm) }
+        val targets = _state.value.farms.filter { it.isComplete && !journal.has(it.folder) && (farm == null || it.folder == farm) }
         targets.forEach { store.create(fs, it, SnapshotOrigin.MANUAL) }
         Message.SnapshotsCreated(targets.size)
     }
 
     /** Puts [snapshot] back into its farm folder. All safety rules live in [SaveOps]. */
     fun restore(snapshot: SnapshotMeta) = runBusy { fs ->
-        writeOp { SaveOps(fs, store, cacheDir).restore(snapshot, _state.value.gameVersion).let { Message.Restored(it.pointerRemoved) } }
+        writeOp {
+            val r = ops(fs).restore(snapshot, _state.value.gameVersion)
+            markDeliberate(snapshot.farm)
+            Message.Restored(r.pointerRemoved)
+        }
     }
 
     fun export(folder: String) = runBusy { fs ->
@@ -348,19 +378,21 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     fun openAbout(open: Boolean) = _state.update { it.copy(showAbout = open) }
 
     /** Newest sync results first, for the diagnostics screen. */
-    fun syncLogEntries(): List<app.farmsync.companion.sync.SyncLog.Entry> =
+    suspend fun syncLogEntries(): List<app.farmsync.companion.sync.SyncLog.Entry> = withContext(Dispatchers.IO) {
         SyncRunner.log(getApplication()).entries().asReversed().take(30)
+    }
 
     /** Copies the picked zip into the cache and validates it. Nothing is written to saves here. */
     fun prepareImport(uri: Uri) = runBusy { _ ->
         val ctx = getApplication<Application>()
         val work = File(cacheDir, "import").apply { deleteRecursively(); mkdirs() }
         val zip = File(work, "picked.zip")
-        ctx.contentResolver.openInputStream(uri)?.use { input -> zip.outputStream().use { input.copyTo(it) } }
-            ?: return@runBusy Message.ImportRejected(ImportException.Reason.NOT_A_ZIP)
         try {
+            ctx.contentResolver.openInputStream(uri)?.use { input -> ImportReader.copyLimited(input, zip) }
+                ?: return@runBusy Message.ImportRejected(ImportException.Reason.NOT_A_ZIP)
             val candidate = ImportReader.read(zip, File(work, "x"))
-            val onDevice = _state.value.farms.firstOrNull { it.folder == candidate.farm }
+            // A folder left by an interrupted import or download of this farm is finished, not replaced.
+            val onDevice = _state.value.farms.firstOrNull { it.folder == candidate.farm && journal.get(it.folder)?.kind != app.farmsync.companion.ops.JournalEntry.Kind.NEW_FARM }
             val wasDeleted = onDevice == null && candidate.farm in _state.value.archived
             _state.update { it.copy(importPreview = ImportPreview(candidate, onDevice, wasDeleted)) }
             null
@@ -378,12 +410,16 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(importPreview = null) }
         runBusy { fs ->
             writeOp {
-                val ops = SaveOps(fs, store, cacheDir)
+                val ops = ops(fs)
                 if (preview.onDevice == null) {
                     ops.addNew(preview.candidate, _state.value.gameVersion)
+                    markDeliberate(preview.candidate.farm)
                     Message.Imported(isNew = true, pointerRemoved = false)
                 } else {
-                    val r = ops.replace(preview.candidate, _state.value.gameVersion, SnapshotOrigin.BEFORE_IMPORT)
+                    // Replaces exactly the farm the preview showed; if it changed since, nothing is written.
+                    val r = ops.replace(preview.candidate, _state.value.gameVersion, SnapshotOrigin.BEFORE_IMPORT,
+                        expectedFingerprint = preview.onDevice.fingerprint)
+                    markDeliberate(preview.candidate.farm)
                     Message.Imported(isNew = false, pointerRemoved = r.pointerRemoved)
                 }
             }
@@ -407,7 +443,25 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
         Message.WriteFailed(e.message.orEmpty(), e.rolledBack, e.before?.createdAt)
     }
 
-    private suspend fun scanInto(fs: ISaveFs) {
+    /**
+     * A restore or import is the user's explicit choice: with Drive linked, the next sync makes
+     * this farm the shared version everywhere instead of undoing it (F13, decision 2026-11-08).
+     */
+    private fun markDeliberate(farm: String) {
+        if (syncPrefs.email != null) syncPrefs.setForced(farm, true)
+    }
+
+    private suspend fun recoverInterrupted(fs: SaveFs) {
+        val pending = journal.all()
+        if (pending.isEmpty()) return
+        val results = withContext(Dispatchers.IO) { pending.map { it.farm to ops(fs).recover(it) } }
+        val shown = results.filter { it.second != Recovery.NOTHING_CHANGED }
+        if (shown.isNotEmpty()) {
+            _state.update { it.copy(message = Message.Recovered(shown, pending.associate { e -> e.farm to e.startedAt })) }
+        }
+    }
+
+    private suspend fun scanInto(fs: SaveFs) {
         val (farms, running) = withContext(Dispatchers.IO) { FarmScanner(fs).scan() to fs.isGameRunning() }
         _state.update { it.copy(farms = farms, gameRunning = running) }
         reloadSnapshots()
@@ -425,7 +479,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Snapshots every complete farm whose content differs from its newest snapshot. */
-    private suspend fun snapshotChanged(fs: ISaveFs, farms: List<Farm>, origin: SnapshotOrigin, quietIfNone: Boolean) {
+    private suspend fun snapshotChanged(fs: SaveFs, farms: List<Farm>, origin: SnapshotOrigin, quietIfNone: Boolean) {
         try {
             val created = withContext(Dispatchers.IO) {
                 farms.filter { it.isComplete && it.contentHash.isNotEmpty() }
@@ -440,13 +494,14 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         } catch (e: Exception) {
-            _state.update { it.copy(message = Message.Failed(e.message ?: e.javaClass.simpleName)) }
+            _state.update { it.copy(message = Message.Failed(SyncRunner.reasonCode(e))) }
         }
     }
 
     /** Runs [block] off the main thread with a progress bar; a returned message is shown. */
-    private fun runBusy(block: suspend (ISaveFs) -> Message?) {
-        if (_state.value.busy) return
+    private fun runBusy(block: suspend (SaveFs) -> Message?) {
+        // Also not while the start-up scan runs: it may be snapshotting or repairing a farm.
+        if (_state.value.busy || _state.value.loading) return
         // Say it plainly instead of Shizuku's internal "binder" errors.
         if (ShizukuGate.status(getApplication()) != ShizukuStatus.READY) {
             _state.update { it.copy(message = Message.ShizukuMissing) }
@@ -456,10 +511,10 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
             val msg = try {
-                val fs = withContext(Dispatchers.IO) { ShizukuGate.saveFs() }
+                val fs: SaveFs = withContext(Dispatchers.IO) { AidlSaveFs(ShizukuGate.saveFs()) }
                 withContext(Dispatchers.IO) { block(fs) }.also { scanInto(fs) }
             } catch (e: Exception) {
-                Message.Failed(e.message ?: e.javaClass.simpleName)
+                Message.Failed(SyncRunner.reasonCode(e))
             }
             _state.update { it.copy(busy = false, message = msg ?: it.message) }
         }
@@ -473,7 +528,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
             val msg = try {
                 withContext(Dispatchers.IO) { block() }
             } catch (e: Exception) {
-                Message.Failed(e.message ?: e.javaClass.simpleName)
+                Message.Failed(SyncRunner.reasonCode(e))
             }
             _state.update { it.copy(busy = false, message = msg ?: it.message) }
         }

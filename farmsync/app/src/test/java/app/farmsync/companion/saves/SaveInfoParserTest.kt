@@ -38,6 +38,22 @@ class SaveInfoParserTest {
     }
 
     @Test
+    fun ignoresValuesInsideCommentsAndCdata() {
+        val xml = """<Farmer><!-- <name>Fake</name> --><![CDATA[<farmName>X</farmName>]]><name>Real</name></Farmer>"""
+        assertEquals("Real", SaveInfoParser.parse(xml).farmer)
+        assertEquals("", SaveInfoParser.parse(xml).farmName)
+    }
+
+    @Test
+    fun unknownVersionsAreNeverLoadable() {
+        assertFalse(GameVersion.canLoad("", "1.6.15.3"))
+        assertFalse(GameVersion.canLoad("1.6.15", null))
+        assertFalse(GameVersion.canLoad("abc", "1.6.15.3"))
+        assertTrue(GameVersion.canLoad("1.6.15.3", "1.6.15.3 (build 7)"))
+        assertFalse(GameVersion.isValid("7"))
+    }
+
+    @Test
     fun versionComparisonHandlesMobileFourthPart() {
         assertTrue(GameVersion.compare("1.6.15.3", "1.6.15") > 0)
         assertEquals(0, GameVersion.compare("1.6.15", "1.6.15.0"))

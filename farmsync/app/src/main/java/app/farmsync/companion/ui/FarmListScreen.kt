@@ -53,6 +53,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.farmsync.companion.R
 import app.farmsync.companion.ops.ImportException
 import app.farmsync.companion.ops.OpBlocked
+import app.farmsync.companion.ops.Recovery
 import app.farmsync.companion.saves.Farm as SaveFarm
 import app.farmsync.companion.shizuku.ShizukuStatus
 import app.farmsync.companion.store.SnapshotMeta
@@ -147,7 +148,7 @@ fun FarmListScreen(vm: FarmListViewModel) {
             syncEnabled = selected !in state.sync.disabled,
             syncResult = state.sync.results[selected],
             onSyncEnabled = { vm.setSyncEnabled(selected, it) },
-            onResolve = { keepLocal -> vm.resolve(selected, keepLocal) },
+            onDownloadAnyway = { vm.downloadAnyway(selected) },
         )
         return
     }
@@ -262,7 +263,7 @@ private fun StatusBanner(state: UiState, vm: FarmListViewModel) {
     val context = LocalContext.current
     val openDevSettings = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)) }
     val results = state.sync.results.filterKeys { k -> state.farms.any { it.folder == k } }.values
-    val attention = results.count { it.outcome in setOf(Outcome.CONFLICT, Outcome.FAILED, Outcome.VAULT_CHANGED) }
+    val attention = results.count { it.outcome in setOf(Outcome.FAILED, Outcome.VAULT_CHANGED, Outcome.NEEDS_REPAIR) }
     val waitingGame = results.any { it.outcome == Outcome.BLOCKED_GAME_RUNNING }
     when {
         state.shizuku == ShizukuStatus.NOT_INSTALLED ->
@@ -384,7 +385,7 @@ private fun ArchivedRow(folder: String, snapshots: List<SnapshotMeta>, onClick: 
 fun messageText(m: Message): String = when (m) {
     is Message.SnapshotsCreated -> pluralStringResource(R.plurals.snapshots_created, m.count, m.count)
     Message.NothingChanged -> stringResource(R.string.nothing_changed)
-    is Message.Failed -> stringResource(R.string.error_prefix, m.detail)
+    is Message.Failed -> failureText(m.detail)
     is Message.Restored -> stringResource(if (m.pointerRemoved) R.string.restored_with_pointer else R.string.restored)
     is Message.Imported -> stringResource(
         when {
@@ -400,6 +401,10 @@ fun messageText(m: Message): String = when (m) {
             OpBlocked.Reason.FARM_EXISTS -> R.string.blocked_farm_exists
             OpBlocked.Reason.NEWER_GAME_VERSION -> R.string.blocked_newer_version
             OpBlocked.Reason.INCOMPLETE -> R.string.blocked_incomplete
+            OpBlocked.Reason.GAME_VERSION_UNKNOWN -> R.string.blocked_version_unknown
+            OpBlocked.Reason.CHANGED -> R.string.blocked_changed
+            OpBlocked.Reason.MIDDAY -> R.string.blocked_midday
+            OpBlocked.Reason.NEEDS_REPAIR -> R.string.blocked_needs_repair
         }
     )
     is Message.ImportRejected -> stringResource(
@@ -411,12 +416,24 @@ fun messageText(m: Message): String = when (m) {
             ImportException.Reason.MISSING_FILES -> R.string.import_missing
             ImportException.Reason.ID_MISMATCH -> R.string.import_id_mismatch
             ImportException.Reason.TOO_LARGE -> R.string.import_too_large
+            ImportException.Reason.AMBIGUOUS -> R.string.import_ambiguous
         }
     )
     is Message.DriveLinked -> stringResource(if (m.newVault) R.string.drive_linked_new else R.string.drive_linked, m.email)
     Message.VaultMismatch -> stringResource(R.string.vault_mismatch)
     Message.ShizukuMissing -> stringResource(R.string.shizuku_not_running)
     is Message.SyncDone -> syncDoneText(m)
+    is Message.Recovered -> m.items.map { (farm, r) ->
+        val name = farm.substringBeforeLast('_')
+        when (r) {
+            Recovery.COMPLETED -> stringResource(R.string.recovered_completed, name)
+            Recovery.ROLLED_BACK -> stringResource(R.string.recovered_rolled_back, name)
+            Recovery.WAITING_FOR_GAME -> stringResource(R.string.recovered_waiting, name)
+            Recovery.INCOMPLETE_NEW_FARM -> stringResource(R.string.recovered_incomplete_new, name)
+            Recovery.NEEDS_HELP -> stringResource(R.string.recovered_needs_help, name, m.since[farm]?.let { dateTime(it) } ?: "?")
+            Recovery.NOTHING_CHANGED -> ""
+        }
+    }.filter { it.isNotEmpty() }.joinToString("\n")
     is Message.WriteFailed -> when {
         m.beforeTime == null -> stringResource(R.string.import_new_failed, m.detail)
         m.rolledBack -> stringResource(R.string.restore_failed_rolled_back, m.detail, dateTime(m.beforeTime))

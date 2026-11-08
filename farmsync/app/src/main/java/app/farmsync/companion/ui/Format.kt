@@ -106,7 +106,8 @@ fun syncLook(enabled: Boolean, r: FarmSyncResult?): StatusLook {
         Outcome.RESOLVED_TOOK_REMOTE -> StatusLook(R.drawable.pi_download, stringResource(R.string.st_resolved_remote), c.meadow)
         Outcome.WAITING_MIDDAY -> StatusLook(R.drawable.pi_clock, stringResource(R.string.st_waiting_midday), c.harvest)
         Outcome.BLOCKED_GAME_RUNNING -> StatusLook(R.drawable.pi_pause, stringResource(R.string.st_game_open), c.harvest)
-        Outcome.CONFLICT -> StatusLook(R.drawable.pi_square_alert, stringResource(R.string.st_conflict), c.alert)
+        Outcome.RETRY_LATER -> StatusLook(R.drawable.pi_clock, stringResource(R.string.st_retry_later), c.harvest)
+        Outcome.NEEDS_REPAIR -> StatusLook(R.drawable.pi_square_alert, stringResource(R.string.st_needs_repair), c.alert)
         Outcome.FAILED, Outcome.VAULT_CHANGED -> StatusLook(R.drawable.pi_square_alert, stringResource(R.string.st_failed), c.alert)
         Outcome.AVAILABLE -> StatusLook(R.drawable.pi_download, stringResource(R.string.st_available), c.ink2)
         Outcome.DELETED_HERE -> StatusLook(R.drawable.pi_cloud, stringResource(R.string.st_deleted_here), c.ink2)
@@ -116,3 +117,18 @@ fun syncLook(enabled: Boolean, r: FarmSyncResult?): StatusLook {
 /** Short status text (used by dialogs). */
 @Composable
 fun syncStatusText(enabled: Boolean, r: FarmSyncResult?): String = syncLook(enabled, r).text
+
+/** A failure reason code (SyncRunner.reasonCode, SyncEngine) in the user's language. */
+@Composable
+fun failureText(code: String): String = stringResource(
+    when {
+        code == "offline" -> R.string.fail_offline
+        code.startsWith("drive_401") || code.startsWith("drive_403_insufficient") || code.startsWith("drive_403_auth") -> R.string.fail_drive_auth
+        code.startsWith("drive_403") || code.startsWith("drive_429") || code.startsWith("drive_5") -> R.string.fail_drive_quota
+        code == "not_visible" -> R.string.fail_not_visible
+        code.startsWith("write_failed") -> R.string.fail_write
+        code == "game_version_unknown" -> R.string.blocked_version_unknown
+        code == "newer_game_version" -> R.string.blocked_newer_version
+        else -> R.string.fail_generic
+    }
+)

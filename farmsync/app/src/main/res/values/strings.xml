@@ -80,7 +80,7 @@
     <string name="origin_sync">for sync</string>
     <string name="origin_before_sync">before sync download</string>
     <string name="drive_not_linked">Google Drive: not linked</string>
-    <string name="drive_not_linked_hint">Link a Google account to sync farms between your devices. Farm Sync only sees the files it creates there.</string>
+    <string name="drive_not_linked_hint">Link a Google account to sync farms between your devices. Once linked, every farm syncs automatically each time you open Farm Sync, and a newer day from another device replaces the one here. A backup is always made first. Farm Sync only sees the files it creates in your Drive.</string>
     <string name="drive_link">Link Google Drive</string>
     <string name="drive_linked_as">Google Drive: %1$s</string>
     <string name="drive_unlink">Unlink</string>
@@ -112,12 +112,6 @@
     <string name="sync_deleted_here">Deleted on this device, so it will not be downloaded again</string>
     <string name="sync_vault_changed">Drive changed during sync: sync again</string>
     <string name="sync_failed">Sync failed</string>
-    <string name="conflict_explain">This farm was played on this device AND on another one since the last sync. Both versions are safe in Drive. Choose which one continues:</string>
-    <string name="conflict_here">This device:</string>
-    <string name="conflict_drive">Drive (%1$s):</string>
-    <string name="keep_this_device">Keep this device</string>
-    <string name="keep_drive">Use Drive version</string>
-    <string name="conflict_safe_note">The version not chosen stays in Drive and in a local snapshot.</string>
     <string name="midday_pull_explain">Downloading puts this device\'s mid-day progress aside into a snapshot; the game will not offer to resume it. Sleep in-game first if you want to keep playing that day here.</string>
     <string name="download_anyway">Download anyway</string>
     <string name="sync_waiting_midday">Drive has a newer day; it downloads after you sleep in-game here (mid-day progress is not overwritten).</string>
@@ -141,7 +135,6 @@
     <string name="st_resolved_remote">Played on two devices: took the other one</string>
     <string name="st_waiting_midday">Newer day waits until you sleep in-game</string>
     <string name="st_game_open">Close Stardew to download</string>
-    <string name="st_conflict">Choose which version continues</string>
     <string name="st_failed">Couldn\'t sync</string>
     <string name="st_available">In Drive</string>
     <string name="st_deleted_here">Deleted on this device</string>
@@ -216,4 +209,23 @@
     <string name="about_trademark">Stardew Valley is a trademark of ConcernedApe LLC. Farm Sync is an independent fan project and is not affiliated with or endorsed by ConcernedApe or Chucklefish. It uses no artwork from the game.</string>
     <string name="about_ai_title">Made with AI</string>
     <string name="about_ai_text">I am not a developer. Farm Sync was written entirely by an AI (Claude, by Anthropic) from my descriptions, and I tested it on my own devices with my own farms. It is a hobby project with no warranty: keep your own backups, and read the source code if you want to know exactly what it does.</string>
+    <string name="blocked_version_unknown">Not written: the game version of this save or of the installed Stardew is unknown, so it can\'t be checked that the game can open it.</string>
+    <string name="blocked_changed">Not written: the farm changed on this device in the meantime. Nothing was replaced; try again.</string>
+    <string name="blocked_midday">Not written: this farm has unsaved progress from the middle of a day. Sleep in the game first.</string>
+    <string name="blocked_needs_repair">Not written: an earlier write to this farm was interrupted and has to be repaired first. Close Stardew and reopen Farm Sync.</string>
+    <string name="import_ambiguous">This zip contains a file twice, or its version information contradicts itself. Nothing was imported.</string>
+    <string name="st_retry_later">Played meanwhile, syncs next time</string>
+    <string name="st_needs_repair">Interrupted write, repair pending</string>
+    <string name="recovered_completed">%1$s: an interrupted write was finished and checked.</string>
+    <string name="recovered_rolled_back">%1$s: an interrupted write was undone. The farm is as it was before.</string>
+    <string name="recovered_waiting">%1$s: an interrupted write needs repair. Close Stardew completely and reopen Farm Sync.</string>
+    <string name="recovered_incomplete_new">%1$s: a download did not finish. Download it again to complete it.</string>
+    <string name="recovered_needs_help">%1$s: an interrupted write could not be repaired automatically. Restore the newest backup from before %2$s.</string>
+    <string name="fail_offline">No internet connection. Syncs when you\'re back online.</string>
+    <string name="fail_drive_auth">Google Drive access was refused. Link your account again in Settings.</string>
+    <string name="fail_drive_quota">Google Drive is full or busy. Try again later.</string>
+    <string name="fail_not_visible">Uploaded, but Drive doesn\'t show it yet. It will be checked next time.</string>
+    <string name="fail_write">The farm could not be written; it was put back as it was.</string>
+    <string name="fail_generic">Something went wrong. It is tried again next time.</string>
+    <string name="restore_shared_note">With sync on, this restored day becomes the shared version on all your devices at the next sync.</string>
 </resources>
