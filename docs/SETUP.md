@@ -78,8 +78,8 @@ A few situations Farm Sync handles by itself:
 
 - If you played the same farm on two devices since the last sync, the version with more play time continues everywhere. The other version is kept, in Drive and as a backup on its device.
 - If a device has unsaved progress from the middle of a day (the game's "continue where you left off"), Farm Sync leaves it alone. A newer day from another device waits until you sleep in-game. You can also tap **Download anyway**, and Farm Sync backs up your mid-day state first.
-- A farm you deleted on one device is never put back there by itself. It stays in Drive, and you can download it again whenever you want.
-- Farm Sync keeps the last 30 backups of every farm on each device, plus any backups you **Pin**.
+- A farm you deleted on one device is never put back there by itself. It stays in Drive and on your other devices. To get it back on this device, share one of its backups as a zip and import it.
+- Farm Sync keeps the newest 30 backups of every farm on each device, plus any backups you **Pin**.
 
 To go back to an earlier day, open the farm, pick a backup and tap **Restore**. With sync on, the restored day becomes the shared version on all your devices at the next sync. Farm Sync backs up the current state first, so you can undo a restore.
 
@@ -112,6 +112,6 @@ The Settings screen lists the syncs of the last days, with what happened to each
 - iPhone and iPad.
 - Background sync. Syncing only when you open the app saves battery, and you always know when it happened.
 
-Project page: [elkin.de/farm-sync](https://elkin.de/farm-sync/) · Source code: [github.com/managementboy/farmsync](https://github.com/managementboy/farmsync) · Privacy policy: [elkin.de/farm-sync-privacy](https://elkin.de/farm-sync-privacy/)
+How to use every screen: [user guide](USER-GUIDE.md) · Project page: [elkin.de/farm-sync](https://elkin.de/farm-sync/) · Source code: [github.com/managementboy/farmsync](https://github.com/managementboy/farmsync) · Privacy policy: [elkin.de/farm-sync-privacy](https://elkin.de/farm-sync-privacy/)
 
 *Stardew Valley is a trademark of ConcernedApe LLC. Farm Sync is an independent fan project and is not affiliated with or endorsed by ConcernedApe, Chucklefish, Google or Rikka Apps.*

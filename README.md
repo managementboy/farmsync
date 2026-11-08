@@ -5,7 +5,7 @@ Back up and sync **Stardew Valley** save games between your own Android devices.
 > Independent hobby project. Not affiliated with or endorsed by ConcernedApe, Chucklefish or Google.
 > Project page: https://elkin.de/farm-sync/ · Privacy policy: https://elkin.de/farm-sync-privacy/
 
-**Version 1.0.** To set it up on your own devices, follow the [setup guide](docs/SETUP.md) (about 15 minutes per device, no computer needed). The APK is on the [Releases page](https://github.com/managementboy/farmsync/releases).
+**Version 1.0.** To set it up on your own devices, follow the [setup guide](docs/SETUP.md) (about 15 minutes per device, no computer needed). The [user guide](docs/USER-GUIDE.md) explains every screen and everyday situations. The APK is on the [Releases page](https://github.com/managementboy/farmsync/releases).
 
 **Made with AI.** The owner of this project is not a developer. Claude (Anthropic) wrote the code, tests and documents; OpenAI's Codex reviewed it in six rounds (see [review/](review/)). It was tested on a Samsung phone and tablet. There is no warranty of any kind; Farm Sync makes a verified backup before every change, but keep your own backups too.
 
@@ -65,7 +65,7 @@ echo "sdk.dir=/path/to/android-sdk" > local.properties
 | `farmsync/` | The Android app (Kotlin, Jetpack Compose, Shizuku) |
 | `scripts/` | adb helpers used during development: verified backups, port discovery, status. Copy `scripts/farmsync.env.example` to `scripts/farmsync.env` first. |
 | `research/` | Research notes, plan and spec, including real-device findings about the mobile save format |
-| `docs/` | Setup guide for users (`SETUP.md`), privacy policy and Google Cloud setup |
+| `docs/` | Setup guide (`SETUP.md`) and user guide (`USER-GUIDE.md`), privacy policy and Google Cloud setup |
 | `review/` | The external code reviews before 1.0 and how each finding was fixed (`fixes-0.10.md`) |
 | `blog/` | Draft of the build story for elkin.de |
 
