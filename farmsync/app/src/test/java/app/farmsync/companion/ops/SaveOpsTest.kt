@@ -379,6 +379,43 @@ class SaveOpsTest {
         assertFalse(d.journal.has(farm))
     }
 
+    // ---------------------------------------------------------------- re-check 0.10.2 (T01)
+
+    @Test
+    fun aDownloadThatEndedUpUsableIsNeverOverwrittenByTheNewFarmPath() {
+        val d = Device(tmp.root, "tablet")
+        val a = Device(tmp.root, "srcA").apply { fs.writeFarm(farm, day = 3, playedMs = 3000) }
+        val snapA = a.store.create(a.fs, a.fs.farm(farm)!!, SnapshotOrigin.MANUAL)
+        val b = Device(tmp.root, "srcB").apply { fs.writeFarm(farm, day = 4, playedMs = 4000) }
+        val snapB = b.store.create(b.fs, b.fs.farm(farm)!!, SnapshotOrigin.MANUAL)
+        d.fs.killAfterRenames = 2 // all files of A in place, verification never ran
+        try { ops(d).addNew(SnapshotSource(a.store, snapA), v); fail() } catch (_: Killed) {}
+        val commits = d.fs.commits
+        assertBlocked(OpBlocked.Reason.FARM_EXISTS) { ops(d).addNew(SnapshotSource(b.store, snapB), v) }
+        assertEquals(snapA.fingerprint, fp(d)) // untouched: it is a normal farm now
+        assertEquals(commits, d.fs.commits)
+        assertFalse(d.journal.has(farm))
+    }
+
+    @Test
+    fun anIncompleteFolderThatChangesDuringStagingIsNotOverwritten() {
+        val d = Device(tmp.root, "tablet")
+        val a = Device(tmp.root, "srcA").apply { fs.writeFarm(farm, day = 3, playedMs = 3000) }
+        val snapA = a.store.create(a.fs, a.fs.farm(farm)!!, SnapshotOrigin.MANUAL)
+        d.fs.killAfterRenames = 1
+        try { ops(d).addNew(SnapshotSource(a.store, snapA), v); fail() } catch (_: Killed) {}
+        val source = object : FileSource by SnapshotSource(a.store, snapA) {
+            var calls = 0
+            override fun copyTo(name: String, dest: java.io.File): String {
+                if (++calls == 3) d.fs.file(farm, "${farm}_old").writeText("appeared meanwhile")
+                return SnapshotSource(a.store, snapA).copyTo(name, dest)
+            }
+        }
+        val commits = d.fs.commits
+        assertBlocked(OpBlocked.Reason.CHANGED) { ops(d).addNew(source, v) }
+        assertEquals(commits, d.fs.commits)
+    }
+
     private fun assertBlocked(reason: OpBlocked.Reason, block: () -> Unit) {
         try {
             block()

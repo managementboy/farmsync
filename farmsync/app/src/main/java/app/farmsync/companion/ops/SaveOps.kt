@@ -183,16 +183,24 @@ class SaveOps(
         val pending = journal.get(name)
         if (pending != null && pending.kind != JournalEntry.Kind.NEW_FARM) throw OpBlocked(OpBlocked.Reason.NEEDS_REPAIR)
         val existing = currentFarm(name)
-        // A folder left by an interrupted download of this farm may be finished, but only while
-        // it still holds nothing but files from that download (never a farm played since).
-        // An incomplete folder of ours (no SaveGameInfo or no main file) can't have been played.
-        if (existing != null && (pending == null || !(isOnlyPartOf(name, pending) || !existing.isComplete))) {
-            throw OpBlocked(OpBlocked.Reason.FARM_EXISTS)
+        if (existing != null) {
+            if (pending == null) throw OpBlocked(OpBlocked.Reason.FARM_EXISTS)
+            if (existing.isComplete) {
+                // A complete folder is a farm the game can open, and may already have been played:
+                // the new-farm path (no snapshot) never writes it (T01). If it holds only files of
+                // our earlier download, that download simply ended up usable: it becomes a normal
+                // farm, and updating it goes through replace() with its snapshot and checks.
+                if (isOnlyPartOf(name, pending)) {
+                    if (pending.deliberate) onDeliberate(name)
+                    journal.clear(name)
+                }
+                throw OpBlocked(OpBlocked.Reason.FARM_EXISTS)
+            }
+            // An incomplete folder of ours (no SaveGameInfo or no main file) can't be played: finish it.
         }
         val files = checkPreconditions(source, installedGameVersion)
         // What an earlier attempt left stays recognised as ours if this attempt is interrupted too.
-        val leftover = existing?.files?.filter { it.name in SavePaths.standardFiles(name) }
-            ?.associate { it.name to fs.md5("$name/${it.name}") }.orEmpty()
+        val leftover = existing?.files?.associate { it.name to fs.md5("$name/${it.name}") }.orEmpty()
 
         // Recorded before the folder exists, so a folder this app creates is always known as its own.
         val entry = JournalEntry(name, JournalEntry.Kind.NEW_FARM, null, emptyMap(),
@@ -203,6 +211,11 @@ class SaveOps(
             fs.discardStaged(name)
             stageAll(source, files)
             if (fs.isGameRunning()) throw OpBlocked(OpBlocked.Reason.GAME_RUNNING)
+            // Commit boundary: an existing folder must still be exactly what this attempt found.
+            if (existing != null && !folderIs(name, leftover)) {
+                runCatching { fs.discardStaged(name) }
+                throw OpBlocked(OpBlocked.Reason.CHANGED)
+            }
             fs.commit(name, commitOrder(files))
             check(matches(name, entry.targetMd5, entry.targetMd5.keys)) { "Verification failed" }
             if (deliberate) onDeliberate(name)
@@ -288,6 +301,12 @@ class SaveOps(
         val now = fs.md5("$farm/$n")
         now == (e.beforeMd5[n] ?: "") || (e.targetMd5[n] != null && now == e.targetMd5[n]) ||
             (n == SavePaths.POINTER && now == "")
+    }
+
+    /** The folder holds exactly [files] (name to md5): nothing added, changed or removed. */
+    private fun folderIs(farm: String, files: Map<String, String>): Boolean {
+        val now = currentFarm(farm) ?: return false
+        return now.files.map { it.name }.toSet() == files.keys && files.all { (n, md5) -> fs.md5("$farm/$n") == md5 }
     }
 
     /** The folder holds only files of this download (or an earlier attempt) and no pointer. */

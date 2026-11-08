@@ -97,3 +97,20 @@ Also: a plain download after a re-used upload is reported as a download, not as 
 - The household vault migration, after a verified backup and with both devices on 0.10.2.
 - The rename window while Stardew starts.
 - TalkBack, and layout at 200% font size.
+
+# Response to the 0.10.2 re-check (Farm Sync 0.10.3)
+
+All three findings in `codex-recheck-0.10.2.md` were confirmed and fixed. There are 87 unit tests now, 4 of them new.
+
+| # | Fix | Tests |
+|---|---|---|
+| T01 | The new-farm path (no snapshot) never writes a complete folder, because the game can open it. If such a folder holds only files of our earlier download, that download is closed as finished and the farm becomes a normal farm. `downloadNew` then updates it through `sync` and `replace()`, with a snapshot, the expected-fingerprint check and the commit-boundary check. For an incomplete folder, the exact file set found at the start (names and md5s, pointer included) is checked again just before the renames. | `SaveOpsTest.aDownloadThatEndedUpUsableIsNeverOverwrittenByTheNewFarmPath`, `anIncompleteFolderThatChangesDuringStagingIsNotOverwritten`, `SyncEngineTest.aRetriedDownloadOfAUsableFarmGoesThroughTheSafeUpdatePath` |
+| T02 | A restore that cannot name every open line as a parent (more than 72) is not published at all: `FAILED/too_many_branches`, nothing marked, and the restore stays pending. The post-publication overflow marking and its stale winner selection are gone. Ordinary syncs keep the number of open lines low by marking conflict losers. | `SyncEngineTest.aRestoreThatCannotNameEveryLineIsNotPublished` (real property encoding, 73 lines) |
+| T03 | When Google's answer is consumed, a flag goes into saved state next to the saved action. If Android then closes the app before the job starts, the new process finds an action whose answer was used. It restarts sync or a named download from the beginning (Google normally answers silently), or asks to tap again for linking. If Shizuku isn't ready, the waiting action runs anyway and says why it can't. | (Android-only; manual check) |
+
+**Still open (needs devices):**
+- The service on emulated storage.
+- The rename window while Stardew starts.
+- The household vault migration.
+- The Google sign-in flows after a process death.
+- TalkBack, and layout at 200% font size.

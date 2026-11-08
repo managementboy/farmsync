@@ -7,6 +7,7 @@ import app.farmsync.companion.ops.OpFailed
 import app.farmsync.companion.ops.SaveOps
 import app.farmsync.companion.ops.WriteJournal
 import app.farmsync.companion.saves.Farm
+import app.farmsync.companion.saves.FarmScanner
 import app.farmsync.companion.saves.SaveFs
 import app.farmsync.companion.store.SnapshotOrigin
 import app.farmsync.companion.store.SnapshotStore
@@ -83,7 +84,10 @@ class SyncEngine(
             state.setEnabled(farm, true)
             FarmSyncResult(farm, Outcome.DOWNLOADED, remote = head)
         } catch (e: OpBlocked) {
-            blocked(farm, e, head)
+            // The farm is (now) a usable farm on this device, e.g. an earlier download ended up
+            // complete: it is updated like any other farm, with a snapshot first (T01).
+            val local = if (e.reason == OpBlocked.Reason.FARM_EXISTS) FarmScanner(fs).scan().firstOrNull { it.folder == farm } else null
+            if (local != null && local.isComplete && !journal.has(farm)) sync(local, farm) else blocked(farm, e, head)
         } catch (e: OpFailed) {
             FarmSyncResult(farm, Outcome.FAILED, remote = head, detail = "write_failed")
         }
@@ -103,6 +107,9 @@ class SyncEngine(
         // parents, in one immutable upload: nothing changes in the vault until it is there (S01).
         val tips = if (forced) VersionGraph.tips(versions).filter { !it.lost }.sortedWith(ConflictPolicy.order.reversed()) else emptyList()
         val wanted = (listOfNotNull(base) + equivalent + tips.map { it.id }).distinct()
+        // A restore must name every line it replaces. If that can't be written (more than 72 open
+        // lines, practically never), nothing is published and the restore stays pending (T02).
+        if (forced && wanted.size > VersionProps.MAX_PARENTS) return FarmSyncResult(farm, Outcome.FAILED, detail = "too_many_branches")
         val parents = wanted.take(VersionProps.MAX_PARENTS)
         // An upload of exactly this that an interrupted run left behind is reused, not repeated.
         val mine = versions.firstOrNull { it.deviceId == me && it.fingerprint == local.fingerprint && it.parents == parents }
@@ -112,12 +119,7 @@ class SyncEngine(
         // Report success only once the new version can be found by every device. Until then
         // nothing is recorded here, so the next run finds and reuses this upload.
         if (after.none { it.id == mine.id }) return FarmSyncResult(farm, Outcome.FAILED, detail = "not_visible")
-        if (forced) {
-            // Only if there were more lines than fit (practically never): the rest are marked
-            // now, after the restore is safely visible.
-            tips.filter { it.id !in parents }.forEach { runCatching { vault.markLost(it) } }
-            state.setForced(farm, false)
-        }
+        if (forced) state.setForced(farm, false)
         state.setBase(farm, mine.id)
         val head = VersionGraph.head(after)!!
         val conflict = VersionGraph.inConflict(after)

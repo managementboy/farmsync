@@ -187,6 +187,43 @@ class SyncEngineTest {
     }
 
     @Test
+    fun aRetriedDownloadOfAUsableFarmGoesThroughTheSafeUpdatePath() {
+        phone.fs.writeFarm(farm, day = 5, playedMs = 5000)
+        sync(phone)
+        tablet.fs.killAfterRenames = 2 // the first download ends up complete, unverified
+        assertTrue(runCatching { engine(tablet).downloadNew(farm) }.isFailure)
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        sync(phone) // Drive moves on
+        // The player opens the usable farm and saves day 9 while the retry is downloading.
+        var n = 0
+        vault.duringDownload = { if (++n == 2) tablet.fs.writeFarm(farm, day = 9, playedMs = 9000) }
+        val commits = tablet.fs.commits
+        val r = engine(tablet).downloadNew(farm)
+        assertEquals(Outcome.RETRY_LATER, r.outcome)
+        assertEquals(9, day(tablet)) // nothing replaced
+        assertEquals(commits, tablet.fs.commits) // stopped before writing anything
+        assertFalse(tablet.journal.has(farm))
+        assertEquals(Outcome.RESOLVED_KEPT_LOCAL, sync(tablet).outcome) // day 9 (more play) is shared next
+    }
+
+    @Test
+    fun aRestoreThatCannotNameEveryLineIsNotPublished() {
+        shared()
+        val h = head()
+        repeat(73) { i ->
+            vault.upload(farm, h.copy(id = "line%02d".format(i), fingerprint = "fp$i", parents = listOf(h.id),
+                info = h.info!!.copy(playedMs = 10_000L + i)), vault.zipOf(h))
+        }
+        val before = vault.all.toList()
+        phone.state.setForced(farm, true)
+        val r = sync(phone)
+        assertEquals("too_many_branches", r.detail)
+        assertEquals(before, vault.all) // nothing published, nothing marked
+        assertTrue(phone.state.isForced(farm))
+        assertEquals(5, day(phone))
+    }
+
+    @Test
     fun identicalSaveAlreadyInTheVaultIsUpToDate() {
         shared()
         phone.fs.writeFarm(farm, day = 6, playedMs = 6000)

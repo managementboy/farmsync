@@ -125,6 +125,9 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
 
     private fun ops(fs: SaveFs) = SaveOps(fs, store, cacheDir, journal, onDeliberate = ::markDeliberate)
 
+    /** Jobs that come back from Google sign-in and must not be dropped while the app is busy. */
+    private val deferred = ArrayDeque<() -> Unit>()
+
     init {
         // Show the last known sync status per farm (also after the app was closed).
         val log = SyncRunner.log(app)
@@ -135,6 +138,27 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
             it.copy(sync = it.sync.copy(email = syncPrefs.email, disabled = syncPrefs.disabled, results = last,
                 lastSync = log.lastTime()))
         }
+        // Android closed the app after Google's answer was taken but before its job started (T03):
+        // the answer is gone, the action is not. It starts again once the app is ready.
+        val unstarted = saved.get<String>(KEY_PENDING_AUTH)
+        if (saved.get<Boolean>(KEY_RESULT_TAKEN) == true && unstarted != null) {
+            clearPendingAuth()
+            deferred.addLast { restartAction(unstarted) }
+        }
+    }
+
+    private fun clearPendingAuth() {
+        saved.remove<String>(KEY_PENDING_AUTH)
+        saved.remove<Boolean>(KEY_RESULT_TAKEN)
+    }
+
+    /** Starts a saved action from the beginning (Google answers again, normally without asking). */
+    private fun restartAction(action: String) = when {
+        action == ACTION_SYNC -> syncNow()
+        action.startsWith(ACTION_DOWNLOAD) -> downloadFromVault(action.removePrefix(ACTION_DOWNLOAD))
+        action.startsWith(ACTION_MIDDAY) -> downloadAnyway(action.removePrefix(ACTION_MIDDAY))
+        // Linking involves choosing an account: ask instead of guessing.
+        else -> _state.update { it.copy(message = Message.AuthRetry) }
     }
 
     // ---------------------------------------------------------------- Google Drive
@@ -151,10 +175,11 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
         val next = afterAuth ?: resumeAction(action)
         afterAuth = null
         if (next == null) {
-            saved.remove<String>(KEY_PENDING_AUTH)
+            clearPendingAuth()
             _state.update { it.copy(message = Message.AuthRetry) }
             return
         }
+        saved[KEY_RESULT_TAKEN] = true // the answer is used now; the action stays saved until it starts
         try {
             next(DriveAuth.tokenFromResult(getApplication(), data))
         } catch (e: Exception) {
@@ -305,6 +330,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
                     is AuthOutcome.NeedsUser -> {
                         afterAuth = block // stays in flight until onAuthResult
                         saved[KEY_PENDING_AUTH] = action // survives Android closing the app meanwhile
+                        saved.remove<Boolean>(KEY_RESULT_TAKEN)
                         _state.update { it.copy(sync = it.sync.copy(pendingAuth = o.intent)) }
                     }
                 }
@@ -329,8 +355,6 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
             block(SyncEngine(fs, store, vault, syncPrefs, cacheDir, _state.value.gameVersion, journal), vault)
         }
 
-    /** Jobs that come back from Google sign-in and must not be dropped while the app is busy. */
-    private val deferred = ArrayDeque<() -> Unit>()
 
     private fun runDeferred() {
         if (_state.value.busy || _state.value.loading) return
@@ -349,7 +373,10 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
             null
         }
         _state.update { it.copy(shizuku = shizuku, gameVersion = gameVersion, error = null) }
-        if (shizuku != ShizukuStatus.READY || _state.value.loading || _state.value.busy) return
+        if (shizuku != ShizukuStatus.READY || _state.value.loading || _state.value.busy) {
+            if (shizuku != ShizukuStatus.READY) runDeferred() // a waiting action then says why it can't run
+            return
+        }
 
         _state.update { it.copy(loading = true) }
         viewModelScope.launch {
@@ -541,7 +568,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
             if (fromAuth) deferred.addLast { runBusy(fromAuth = true, block) }
             return
         }
-        if (fromAuth) saved.remove<String>(KEY_PENDING_AUTH) // accepted: it runs now
+        if (fromAuth) clearPendingAuth() // accepted: it runs now
         // Say it plainly instead of Shizuku's internal "binder" errors.
         if (ShizukuGate.status(getApplication()) != ShizukuStatus.READY) {
             _state.update { it.copy(message = Message.ShizukuMissing) }
@@ -567,7 +594,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
             if (fromAuth) deferred.addLast { runBusyNoFs(fromAuth = true, block) }
             return
         }
-        if (fromAuth) saved.remove<String>(KEY_PENDING_AUTH)
+        if (fromAuth) clearPendingAuth()
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
             val msg = try {
@@ -582,6 +609,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
 
     companion object {
         private const val KEY_PENDING_AUTH = "pendingAuth"
+        private const val KEY_RESULT_TAKEN = "pendingAuthResultTaken"
         private const val ACTION_LINK = "link"
         private const val ACTION_SYNC = "sync"
         private const val ACTION_DOWNLOAD = "download:"
