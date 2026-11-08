@@ -165,7 +165,7 @@ private fun SyncSection(
                     }
                     Text(stringResource(R.string.conflict_safe_note), style = MaterialTheme.typography.bodySmall)
                 }
-                Outcome.NEEDS_CONFIRM_MIDDAY -> {
+                Outcome.WAITING_MIDDAY -> {
                     Text(stringResource(R.string.midday_pull_explain), color = MaterialTheme.colorScheme.tertiary)
                     Button(onClick = { onResolve(false) }, enabled = !busy) { Text(stringResource(R.string.download_anyway)) }
                 }

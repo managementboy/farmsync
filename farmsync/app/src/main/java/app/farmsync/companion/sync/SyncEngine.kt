@@ -10,7 +10,13 @@ import app.farmsync.companion.store.SnapshotStore
 import java.io.File
 
 enum class Outcome {
-    UP_TO_DATE, UPLOADED, DOWNLOADED, CONFLICT, NEEDS_CONFIRM_MIDDAY, BLOCKED_GAME_RUNNING,
+    UP_TO_DATE, UPLOADED, DOWNLOADED, CONFLICT, BLOCKED_GAME_RUNNING,
+    /** Drive has a newer day, but this device has unsaved mid-day progress: wait for a sleep. */
+    WAITING_MIDDAY,
+    /** Conflict decided by [ConflictPolicy]: this device's version continues. */
+    RESOLVED_KEPT_LOCAL,
+    /** Conflict decided by [ConflictPolicy]: the other device's version was downloaded. */
+    RESOLVED_TOOK_REMOTE,
     AVAILABLE, DELETED_HERE, VAULT_CHANGED, FAILED,
 }
 
@@ -52,12 +58,34 @@ class SyncEngine(
                 FarmSyncResult(farm, Outcome.UP_TO_DATE, remote = manifest.headVersion)
             }
             SyncAction.PULL -> pull(local!!, manifest!!, allowMidday)
-            SyncAction.CONFLICT -> conflict(local!!, manifest!!, base)
+            SyncAction.CONFLICT -> resolveAutomatically(local!!, manifest!!, base)
             SyncAction.REMOTE_ONLY -> FarmSyncResult(farm, Outcome.AVAILABLE, remote = manifest!!.headVersion)
             SyncAction.DELETED_HERE -> {
                 if (manifest!!.devices[me]?.deletedHere != true) writeDevice(farm, base, false, deletedHere = true)
                 FarmSyncResult(farm, Outcome.DELETED_HERE, remote = manifest.headVersion)
             }
+        }
+    }
+
+    /**
+     * Both this device and another one moved the farm on. Decided by [ConflictPolicy] without
+     * asking. The losing version is kept: in the vault always, and as a local snapshot when this
+     * device's version is replaced.
+     */
+    private fun resolveAutomatically(local: Farm, m: Manifest, base: String?): FarmSyncResult {
+        val farm = local.folder
+        val head = m.headVersion ?: return push(local, m, base)
+        val localSavedAt = local.files.firstOrNull { it.name == "SaveGameInfo" }?.mtime ?: 0L
+        val keepMine = ConflictPolicy.keepLocal(local.info, local.midday, localSavedAt, head.info, head.created)
+        return if (keepMine) {
+            keepLocal(local).copy(outcome = Outcome.RESOLVED_KEPT_LOCAL, remote = head)
+        } else {
+            // Park this device's version in the vault (not as head) before replacing it here.
+            val mine = m.versions[local.fingerprint] ?: upload(local, base, conflict = false)
+            val fresh = vault.readManifest(farm) ?: m
+            vault.writeManifest(fresh.copy(versions = fresh.versions + (mine.id to mine.copy(conflict = false))))
+            val r = pull(local, vault.readManifest(farm)!!, allowMidday = false)
+            if (r.outcome == Outcome.DOWNLOADED) r.copy(outcome = Outcome.RESOLVED_TOOK_REMOTE, local = mine) else r
         }
     }
 
@@ -111,7 +139,7 @@ class SyncEngine(
         val fresh = vault.readManifest(farm)
         if (fresh?.head != seen?.head) {
             // Another device moved the farm on while we uploaded: do not overwrite its head.
-            return conflict(local, fresh!!, base)
+            return resolveAutomatically(local, fresh!!, base)
         }
         val now = System.currentTimeMillis()
         val updated = (fresh ?: Manifest.empty(farm)).let { m ->
@@ -129,7 +157,7 @@ class SyncEngine(
     private fun pull(local: Farm, m: Manifest, allowMidday: Boolean): FarmSyncResult {
         val farm = local.folder
         val head = m.headVersion ?: return FarmSyncResult(farm, Outcome.FAILED, detail = "no head")
-        if (local.midday && !allowMidday) return FarmSyncResult(farm, Outcome.NEEDS_CONFIRM_MIDDAY, remote = head)
+        if (local.midday && !allowMidday) return FarmSyncResult(farm, Outcome.WAITING_MIDDAY, remote = head)
         return try {
             val candidate = fetch(head, farm)
             SaveOps(fs, store, tempDir).replace(candidate, installedGameVersion, SnapshotOrigin.BEFORE_SYNC)
@@ -139,16 +167,6 @@ class SyncEngine(
         } catch (e: OpBlocked) {
             blocked(farm, e, head)
         }
-    }
-
-    private fun conflict(local: Farm, m: Manifest, base: String?): FarmSyncResult {
-        val farm = local.folder
-        // Keep this device's state safe in the vault, marked as waiting for a decision.
-        val mine = m.versions[local.fingerprint] ?: upload(local, base, conflict = true).also { entry ->
-            val fresh = vault.readManifest(farm) ?: m
-            vault.writeManifest(fresh.copy(versions = fresh.versions + (entry.id to entry)))
-        }
-        return FarmSyncResult(farm, Outcome.CONFLICT, remote = m.headVersion, local = mine)
     }
 
     private fun blocked(farm: String, e: OpBlocked, head: VersionEntry) =

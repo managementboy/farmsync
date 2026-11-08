@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Farm Sync</string>
     <string name="shizuku_not_installed">Shizuku is not installed. Install it from the Play Store.</string>
-    <string name="shizuku_not_running">Shizuku is not running. Turn on Wireless debugging, then open Shizuku and tap Start.</string>
+    <string name="shizuku_not_running">Shizuku is not running. Connect to a Wi-Fi where Wireless debugging is allowed, turn Wireless debugging on, then open Shizuku and tap Start.</string>
     <string name="shizuku_no_permission">Farm Sync needs permission in Shizuku.</string>
     <string name="shizuku_ready">Shizuku ready</string>
     <string name="grant_permission">Grant permission</string>
@@ -96,7 +96,7 @@
     </plurals>
     <string name="last_sync">last sync %1$s</string>
     <string name="sync_now">Sync now</string>
-    <string name="sync_done">Sync finished: %1$d uploaded, %2$d downloaded, %3$d need attention.</string>
+    <string name="sync_done">Sync finished: %1$d uploaded, %2$d downloaded, %3$d conflicts resolved, %4$d need attention.</string>
     <string name="available_title">In Google Drive, not on this device</string>
     <string name="from_device">From %1$s, %2$s</string>
     <string name="download_to_device">Download to this device</string>
@@ -107,7 +107,6 @@
     <string name="sync_uploaded">↑ Uploaded to Drive</string>
     <string name="sync_downloaded">↓ Newer day downloaded from Drive</string>
     <string name="sync_conflict">⚠ Played here and on another device: choose which one to keep</string>
-    <string name="sync_needs_confirm">⚠ Drive has a newer day, but this device has mid-day progress</string>
     <string name="sync_blocked_game">Not downloaded: Stardew is open. Swipe it away and sync again.</string>
     <string name="sync_available">In Drive, not on this device</string>
     <string name="sync_deleted_here">Deleted on this device, so it will not be downloaded again</string>
@@ -121,6 +120,9 @@
     <string name="conflict_safe_note">The version not chosen stays in Drive and in a local snapshot.</string>
     <string name="midday_pull_explain">Downloading puts this device\'s mid-day progress aside into a snapshot; the game will not offer to resume it. Sleep in-game first if you want to keep playing that day here.</string>
     <string name="download_anyway">Download anyway</string>
+    <string name="sync_waiting_midday">Drive has a newer day; it downloads after you sleep in-game here (mid-day progress is not overwritten).</string>
+    <string name="sync_resolved_local">✓ Played on two devices: kept this one (more play time). The other version is kept in Drive.</string>
+    <string name="sync_resolved_remote">↓ Played on two devices: took the other one (more play time). This device\'s version is kept in a snapshot and in Drive.</string>
     <string-array name="seasons">
         <item>Spring</item>
         <item>Summer</item>

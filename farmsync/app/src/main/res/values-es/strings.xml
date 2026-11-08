@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="shizuku_not_installed">Shizuku no está instalado. Instálalo desde Play Store.</string>
-    <string name="shizuku_not_running">Shizuku no está activo. Activa la Depuración inalámbrica, abre Shizuku y pulsa Iniciar.</string>
+    <string name="shizuku_not_running">Shizuku no está activo. Conéctate a una red Wi-Fi donde la Depuración inalámbrica esté permitida, actívala, abre Shizuku y pulsa Iniciar.</string>
     <string name="shizuku_no_permission">Farm Sync necesita permiso en Shizuku.</string>
     <string name="shizuku_ready">Shizuku listo</string>
     <string name="grant_permission">Conceder permiso</string>
@@ -97,7 +97,7 @@
     </plurals>
     <string name="last_sync">última sincronización %1$s</string>
     <string name="sync_now">Sincronizar</string>
-    <string name="sync_done">Sincronización terminada: %1$d subidas, %2$d descargadas, %3$d necesitan atención.</string>
+    <string name="sync_done">Sincronización terminada: %1$d subidas, %2$d descargadas, %3$d conflictos resueltos, %4$d necesitan atención.</string>
     <string name="available_title">En Google Drive, no en este dispositivo</string>
     <string name="from_device">De %1$s, %2$s</string>
     <string name="download_to_device">Descargar a este dispositivo</string>
@@ -108,7 +108,6 @@
     <string name="sync_uploaded">↑ Subida a Drive</string>
     <string name="sync_downloaded">↓ Día más nuevo descargado de Drive</string>
     <string name="sync_conflict">⚠ Jugada aquí y en otro dispositivo: elige cuál conservar</string>
-    <string name="sync_needs_confirm">⚠ Drive tiene un día más nuevo, pero este dispositivo tiene progreso a mitad del día</string>
     <string name="sync_blocked_game">No se descargó: Stardew está abierto. Ciérralo y sincroniza de nuevo.</string>
     <string name="sync_available">En Drive, no en este dispositivo</string>
     <string name="sync_deleted_here">Borrada en este dispositivo, no se volverá a descargar</string>
@@ -122,6 +121,9 @@
     <string name="conflict_safe_note">La versión no elegida se queda en Drive y en una copia local.</string>
     <string name="midday_pull_explain">Descargar guarda en una copia el progreso a mitad del día de este dispositivo; el juego no ofrecerá continuarlo. Si quieres seguir ese día aquí, duerme primero en el juego.</string>
     <string name="download_anyway">Descargar igualmente</string>
+    <string name="sync_waiting_midday">Drive tiene un día más nuevo; se descargará cuando duermas en el juego aquí (el progreso a mitad del día no se sobrescribe).</string>
+    <string name="sync_resolved_local">✓ Jugada en dos dispositivos: se conservó esta (más tiempo de juego). La otra versión se guarda en Drive.</string>
+    <string name="sync_resolved_remote">↓ Jugada en dos dispositivos: se tomó la otra (más tiempo de juego). La versión de este dispositivo se guarda en una copia y en Drive.</string>
     <string-array name="seasons">
         <item>primavera</item>
         <item>verano</item>

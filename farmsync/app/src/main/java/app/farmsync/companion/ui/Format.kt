@@ -47,7 +47,9 @@ fun syncStatusText(enabled: Boolean, r: app.farmsync.companion.sync.FarmSyncResu
             app.farmsync.companion.sync.Outcome.UPLOADED -> R.string.sync_uploaded
             app.farmsync.companion.sync.Outcome.DOWNLOADED -> R.string.sync_downloaded
             app.farmsync.companion.sync.Outcome.CONFLICT -> R.string.sync_conflict
-            app.farmsync.companion.sync.Outcome.NEEDS_CONFIRM_MIDDAY -> R.string.sync_needs_confirm
+            app.farmsync.companion.sync.Outcome.WAITING_MIDDAY -> R.string.sync_waiting_midday
+            app.farmsync.companion.sync.Outcome.RESOLVED_KEPT_LOCAL -> R.string.sync_resolved_local
+            app.farmsync.companion.sync.Outcome.RESOLVED_TOOK_REMOTE -> R.string.sync_resolved_remote
             app.farmsync.companion.sync.Outcome.BLOCKED_GAME_RUNNING -> R.string.sync_blocked_game
             app.farmsync.companion.sync.Outcome.AVAILABLE -> R.string.sync_available
             app.farmsync.companion.sync.Outcome.DELETED_HERE -> R.string.sync_deleted_here

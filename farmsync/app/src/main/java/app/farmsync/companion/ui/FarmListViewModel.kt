@@ -93,7 +93,7 @@ sealed interface Message {
     data class DriveLinked(val email: String, val newVault: Boolean) : Message
     data object VaultMismatch : Message
     data object ShizukuMissing : Message
-    data class SyncDone(val uploaded: Int, val downloaded: Int, val attention: Int) : Message
+    data class SyncDone(val uploaded: Int, val downloaded: Int, val resolved: Int, val attention: Int) : Message
 }
 
 class FarmListViewModel(app: Application) : AndroidViewModel(app) {
@@ -169,8 +169,9 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
         Message.SyncDone(
             uploaded = results.values.count { it.outcome == Outcome.UPLOADED },
             downloaded = results.values.count { it.outcome == Outcome.DOWNLOADED },
+            resolved = results.values.count { it.outcome in setOf(Outcome.RESOLVED_KEPT_LOCAL, Outcome.RESOLVED_TOOK_REMOTE) },
             attention = results.values.count {
-                it.outcome in setOf(Outcome.CONFLICT, Outcome.NEEDS_CONFIRM_MIDDAY, Outcome.BLOCKED_GAME_RUNNING, Outcome.FAILED)
+                it.outcome in setOf(Outcome.CONFLICT, Outcome.BLOCKED_GAME_RUNNING, Outcome.FAILED)
             },
         )
     }
