@@ -12,7 +12,12 @@ import app.farmsync.companion.store.SnapshotOrigin
 import app.farmsync.companion.store.SnapshotStore
 import java.io.File
 
-class OpBlocked(val reason: Reason, detail: String = reason.name) : Exception(detail) {
+class OpBlocked(
+    val reason: Reason,
+    detail: String = reason.name,
+    /** [Reason.FINISHED_EARLIER]: the fingerprint verified as our earlier download (V01). */
+    val verifiedFingerprint: String? = null,
+) : Exception(detail) {
     enum class Reason {
         GAME_RUNNING, FARM_MISSING, FARM_EXISTS, NEWER_GAME_VERSION, INCOMPLETE,
         /** The installed game's or the save's version is unknown, so R6 can't be checked. */
@@ -195,10 +200,14 @@ class SaveOps(
                 // the new-farm path (no snapshot) never writes it (T01). If it holds only files of
                 // our earlier download, that download simply ended up usable: it becomes a normal
                 // farm, and updating it goes through replace() with its snapshot and checks.
-                if (isOnlyPartOf(name, pending)) {
+                val ours = ownedFiles(name, pending)
+                if (ours != null) {
                     if (pending.deliberate) onDeliberate(name)
                     journal.clear(name)
-                    throw OpBlocked(OpBlocked.Reason.FINISHED_EARLIER)
+                    // The exact state verified here is the only one an update may replace: a
+                    // later scan must never become the baseline (a day played meanwhile would).
+                    val verified = ours[name].orEmpty() + ours["SaveGameInfo"].orEmpty()
+                    throw OpBlocked(OpBlocked.Reason.FINISHED_EARLIER, verifiedFingerprint = verified)
                 }
                 throw OpBlocked(OpBlocked.Reason.FARM_EXISTS)
             }
@@ -316,13 +325,18 @@ class SaveOps(
     }
 
     /** The folder holds only files of this download (or an earlier attempt) and no pointer. */
-    private fun isOnlyPartOf(farm: String, e: JournalEntry): Boolean {
-        val f = currentFarm(farm) ?: return true
-        if (f.files.any { it.name == SavePaths.POINTER }) return false
-        return f.files.all { file ->
-            val now = fs.md5("$farm/${file.name}")
-            now == e.targetMd5[file.name] || now == e.alsoOurs[file.name]
-        }
+    private fun isOnlyPartOf(farm: String, e: JournalEntry): Boolean = currentFarm(farm) == null || ownedFiles(farm, e) != null
+
+    /**
+     * The md5 of every file in the folder if each one is a file of this download (or of an
+     * earlier attempt) and there is no pointer; null otherwise. One read, so the answer and the
+     * hashes describe the same moment.
+     */
+    private fun ownedFiles(farm: String, e: JournalEntry): Map<String, String>? {
+        val f = currentFarm(farm) ?: return emptyMap()
+        if (f.files.any { it.name == SavePaths.POINTER }) return null
+        val md5s = f.files.associate { it.name to fs.md5("$farm/${it.name}") }
+        return md5s.takeIf { it.all { (n, md5) -> md5 == e.targetMd5[n] || md5 == e.alsoOurs[n] } }
     }
 
     /** True if the farm is an unfinished new folder from an interrupted download or import. */

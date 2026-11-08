@@ -209,6 +209,26 @@ class SyncEngineTest {
     }
 
     @Test
+    fun aDayPlayedRightAfterTheRetryIsRecognisedIsNeverReplaced() {
+        phone.fs.writeFarm(farm, day = 5, playedMs = 5000)
+        sync(phone)
+        tablet.fs.killAfterRenames = 2 // the first download ends up complete, unverified
+        assertTrue(runCatching { engine(tablet).downloadNew(farm) }.isFailure)
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        sync(phone) // Drive moves on
+        // Scans 1–2 are the retry recognising its own finished download. The player saves day 9
+        // right after that, before anything else looks at the farm (V01).
+        tablet.fs.beforeScan = { n -> if (n == 3) tablet.fs.writeFarm(farm, day = 9, playedMs = 9000) }
+        val commits = tablet.fs.commits
+        val uploads = vault.all.size
+        assertEquals(Outcome.RETRY_LATER, engine(tablet).downloadNew(farm).outcome)
+        tablet.fs.beforeScan = null
+        assertEquals(9, day(tablet)) // still the live farm
+        assertEquals(commits, tablet.fs.commits)
+        assertEquals(uploads, vault.all.size)
+    }
+
+    @Test
     fun aRetryStopsIfThePlayerSavesWhileItStagesFiles() {
         phone.fs.writeFarm(farm, day = 5, playedMs = 5000)
         sync(phone)

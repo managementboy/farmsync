@@ -7,7 +7,6 @@ import app.farmsync.companion.ops.OpFailed
 import app.farmsync.companion.ops.SaveOps
 import app.farmsync.companion.ops.WriteJournal
 import app.farmsync.companion.saves.Farm
-import app.farmsync.companion.saves.FarmScanner
 import app.farmsync.companion.saves.SaveFs
 import app.farmsync.companion.store.SnapshotOrigin
 import app.farmsync.companion.store.SnapshotStore
@@ -88,11 +87,13 @@ class SyncEngine(
                 ops.addNew(candidate, installedGameVersion)
             } catch (e: OpBlocked) {
                 if (e.reason != OpBlocked.Reason.FINISHED_EARLIER) throw e
-                // Our earlier download ended up usable and unchanged: update it like a pull,
-                // with a verified snapshot and the live state rechecked right before the commit.
-                val local = FarmScanner(fs).scan().firstOrNull { it.folder == farm } ?: throw OpBlocked(OpBlocked.Reason.CHANGED)
+                // Our earlier download ended up usable and unchanged: update it like a pull, with a
+                // verified snapshot and the live state rechecked right before the commit. The
+                // expected state is the one verified as ours, never a fresh scan: a day played in
+                // between differs from it, so nothing is replaced (V01).
                 ops.replace(candidate, installedGameVersion, SnapshotOrigin.BEFORE_SYNC,
-                    expectedFingerprint = local.fingerprint, allowMidday = false)
+                    expectedFingerprint = e.verifiedFingerprint ?: throw OpBlocked(OpBlocked.Reason.CHANGED),
+                    allowMidday = false)
             }
             state.setBase(farm, head.id)
             state.setEnabled(farm, true)

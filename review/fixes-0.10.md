@@ -174,3 +174,19 @@ These still need Android or a disposable Drive vault:
 - **The real Google sign-in lifecycle:** cancel, process death while the screen is open, result delivered during start-up.
 - **The migration of a disposable copy of an old vault on real Drive,** before the household vault.
 - **Accessibility:** TalkBack, and 200% font size on phone and tablet.
+
+# Response to the 0.10.4 re-check (Farm Sync 0.10.5)
+
+**V01 (confirmed, fixed).** When a retry recognises its own finished download, `SaveOps.addNew` hashes the folder once (`ownedFiles`) and returns that exact verified fingerprint with `FINISHED_EARLIER`. `SyncEngine.downloadNew` passes it unchanged to `replace()` as the expected state. There is no fresh scan any more that could become the baseline.
+
+A day played at any later point differs from the verified fingerprint:
+- **Before the snapshot:** `replace()` refuses at its first check (`CHANGED`, reported as `RETRY_LATER`).
+- **While staging:** the commit-boundary check refuses.
+
+In both cases nothing is written and nothing is uploaded. No retry state needs to survive a restart here: if the app closes in between, the farm is a normal farm, and the next ordinary sync treats a newer local day as new play.
+
+| Test | Proves |
+|---|---|
+| `SyncEngineTest.aDayPlayedRightAfterTheRetryIsRecognisedIsNeverReplaced` | The fake game saves day 9 right after the retry recognises the earlier download (before the next scan). Day 9 stays live, `RETRY_LATER`, no commit, no upload. Checked to fail on the 0.10.4 logic (`DOWNLOADED`) and to pass with the fix. |
+
+**JVM result:** 98 tests, 0 failures. Release readiness is unchanged: the device and real-Drive checks listed under 0.10.4 are still open.

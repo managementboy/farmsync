@@ -34,6 +34,9 @@ class FakeSaveFs(val root: File) : SaveFs {
     /** Runs at the start of every commit (e.g. the player saving just before). */
     var beforeCommit: ((String) -> Unit)? = null
     var failCreateFolder = false
+    /** Runs before every farm scan with the scan's number (1, 2, …) since it was set. */
+    var beforeScan: ((Int) -> Unit)? = null
+    private var scans = 0
     /** Runs (once) when the next file is staged (e.g. the game saving meanwhile). */
     var onStage: (() -> Unit)? = null
     /** Throw [Killed] when the next file is staged. */
@@ -49,6 +52,7 @@ class FakeSaveFs(val root: File) : SaveFs {
     private fun dir(farm: String) = File(root, farm)
 
     override fun listFarmsJson(): String {
+        beforeScan?.let { scans++; it(scans) }
         val arr = JSONArray()
         root.listFiles().orEmpty().filter { it.isDirectory && SavePaths.isFarmFolder(it.name) }.sortedBy { it.name }.forEach { d ->
             val files = JSONArray()
