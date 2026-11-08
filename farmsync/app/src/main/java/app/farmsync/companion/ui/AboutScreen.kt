@@ -30,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -39,6 +41,7 @@ import app.farmsync.companion.R
 import app.farmsync.companion.ui.components.AppMark
 import app.farmsync.companion.ui.components.PixelIcon
 import app.farmsync.companion.ui.components.card
+import app.farmsync.companion.ui.components.pixelFrame
 import app.farmsync.companion.ui.theme.Farm
 import app.farmsync.companion.ui.theme.FarmType
 
@@ -85,6 +88,17 @@ fun AboutScreen(onBack: () -> Unit) {
                     Text(stringResource(R.string.about_version, BuildConfig.VERSION_NAME), fontSize = 14.sp, color = c.ink2)
                     Spacer(Modifier.padding(top = 8.dp))
                     Text(stringResource(R.string.about_blurb), fontSize = 15.sp, color = c.ink, textAlign = TextAlign.Center)
+                }
+            }
+            item {
+                // Deliberately prominent: people should know who (and what) wrote the code they trust with their farms.
+                Column(
+                    Modifier.fillMaxWidth().pixelFrame(c.harvestBg, c.harvest, border = 3.dp).padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(stringResource(R.string.about_ai_title), style = FarmType.section, color = c.ink,
+                        modifier = Modifier.semantics { heading() })
+                    Text(stringResource(R.string.about_ai_text), fontSize = 15.sp, color = c.ink)
                 }
             }
             item {

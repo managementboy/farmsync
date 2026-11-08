@@ -220,4 +220,6 @@
     <string name="about_copyright">© 2026 Elkin Fricke. Libre y de código abierto bajo la licencia MIT.</string>
     <string name="about_licenses">Licencias de código abierto</string>
     <string name="about_trademark">Stardew Valley es una marca de ConcernedApe LLC. Farm Sync es un proyecto independiente de fans, sin relación con ConcernedApe ni Chucklefish ni respaldado por ellos. No usa ningún gráfico del juego.</string>
+    <string name="about_ai_title">Hecho con IA</string>
+    <string name="about_ai_text">No soy desarrollador. Farm Sync lo escribió por completo una IA (Claude, de Anthropic) a partir de mis descripciones, y lo probé en mis propios dispositivos con mis propias granjas. Es un proyecto personal sin garantía: guarda tus propias copias y lee el código fuente si quieres saber exactamente qué hace.</string>
 </resources>
