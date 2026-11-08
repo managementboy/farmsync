@@ -1,7 +1,7 @@
 ---
 title: "I had an AI build a save sync for Stardew Valley. Then I had another one try to break it."
 status: published
-categories: [AI]
+categories: [AI, Stardew Valley, Android]
 tags: [Android, Claude, Codex, Google Drive, Shizuku, Stardew Valley]
 ---
 
