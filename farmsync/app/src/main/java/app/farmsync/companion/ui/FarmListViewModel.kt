@@ -1,6 +1,8 @@
 package app.farmsync.companion.ui
 
 import android.app.Application
+import android.app.PendingIntent
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
@@ -21,6 +23,14 @@ import app.farmsync.companion.shizuku.ShizukuStatus
 import app.farmsync.companion.store.SnapshotMeta
 import app.farmsync.companion.store.SnapshotOrigin
 import app.farmsync.companion.store.SnapshotStore
+import app.farmsync.companion.sync.AuthOutcome
+import app.farmsync.companion.sync.DriveApi
+import app.farmsync.companion.sync.DriveAuth
+import app.farmsync.companion.sync.FarmSyncResult
+import app.farmsync.companion.sync.Outcome
+import app.farmsync.companion.sync.SyncEngine
+import app.farmsync.companion.sync.SyncPrefs
+import app.farmsync.companion.sync.Vault
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +64,21 @@ data class UiState(
     val busy: Boolean = false,
     val message: Message? = null,
     val error: String? = null,
+    val sync: SyncUi = SyncUi(),
+)
+
+data class SyncUi(
+    /** The linked vault account, or null if Drive is not linked on this device. */
+    val email: String? = null,
+    val enabled: Set<String> = emptySet(),
+    val results: Map<String, FarmSyncResult> = emptyMap(),
+    /** Farms in the vault that are not on this device (never downloaded automatically). */
+    val available: List<FarmSyncResult> = emptyList(),
+    /** Linked account has no vault yet: ask before creating one. */
+    val confirmCreateVaultFor: String? = null,
+    /** One-shot: Google needs the user (account chooser / consent). */
+    val pendingAuth: PendingIntent? = null,
+    val lastSync: Long? = null,
 )
 
 sealed interface Message {
@@ -65,6 +90,9 @@ sealed interface Message {
     data class Blocked(val reason: OpBlocked.Reason) : Message
     data class ImportRejected(val reason: ImportException.Reason) : Message
     data class WriteFailed(val detail: String, val rolledBack: Boolean, val beforeTime: Long?) : Message
+    data class DriveLinked(val email: String, val newVault: Boolean) : Message
+    data object VaultMismatch : Message
+    data class SyncDone(val uploaded: Int, val downloaded: Int, val attention: Int) : Message
 }
 
 class FarmListViewModel(app: Application) : AndroidViewModel(app) {
@@ -73,6 +101,158 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<UiState> = _state
     private val store = SnapshotStore(File(app.filesDir, "snapshots"))
     private val cacheDir get() = getApplication<Application>().cacheDir
+    private val syncPrefs = SyncPrefs(app)
+    /** What to run once the user finished Google's chooser/consent. */
+    private var afterAuth: ((String) -> Unit)? = null
+
+    init {
+        _state.update { it.copy(sync = it.sync.copy(email = syncPrefs.email, enabled = enabledFarms())) }
+    }
+
+    // ---------------------------------------------------------------- Google Drive
+
+    /** Links this device to a Google account's vault. Google shows its account chooser. */
+    fun linkDrive() = withToken(email = null) { token -> finishLink(token) }
+
+    fun onAuthResult(data: Intent?) {
+        val next = afterAuth ?: return
+        afterAuth = null
+        try {
+            next(DriveAuth.tokenFromResult(getApplication(), data))
+        } catch (e: Exception) {
+            _state.update { it.copy(message = Message.Failed(e.message ?: "Drive")) }
+        }
+    }
+
+    fun authLaunched() = _state.update { it.copy(sync = it.sync.copy(pendingAuth = null)) }
+
+    fun confirmCreateVault() {
+        _state.update { it.copy(sync = it.sync.copy(confirmCreateVaultFor = null)) }
+        withToken(syncPrefs.email ?: pendingEmail) { token ->
+            runBusy { _ ->
+                val api = DriveApi(token)
+                val vault = Vault.find(api) ?: Vault.create(api)
+                syncPrefs.email = api.aboutEmail()
+                syncPrefs.vaultId = vault.vaultId
+                _state.update { it.copy(sync = it.sync.copy(email = syncPrefs.email)) }
+                Message.DriveLinked(syncPrefs.email!!, newVault = true)
+            }
+        }
+    }
+
+    fun cancelCreateVault() = _state.update { it.copy(sync = it.sync.copy(confirmCreateVaultFor = null)) }
+
+    fun unlinkDrive() {
+        syncPrefs.unlink()
+        _state.update { it.copy(sync = SyncUi(enabled = enabledFarms())) }
+    }
+
+    fun setSyncEnabled(farm: String, on: Boolean) {
+        syncPrefs.setEnabled(farm, on)
+        _state.update { it.copy(sync = it.sync.copy(enabled = enabledFarms())) }
+    }
+
+    /** Syncs every farm switched on for sync; lists vault farms that are not on this device. */
+    fun syncNow() = withDrive { engine, vault ->
+        val local = _state.value.farms
+        val results = local.filter { it.isComplete && syncPrefs.isEnabled(it.folder) }
+            .associate { it.folder to runCatching { engine.sync(it, it.folder) }.getOrElse { e -> failed(it.folder, e) } }
+        val onDevice = local.map { it.folder }.toSet()
+        val available = vault.farms().filter { it !in onDevice }
+            .map { runCatching { engine.sync(null, it) }.getOrElse { e -> failed(it, e) } }
+            .filter { it.outcome == Outcome.AVAILABLE }
+        _state.update {
+            it.copy(sync = it.sync.copy(results = it.sync.results + results, available = available,
+                lastSync = System.currentTimeMillis()))
+        }
+        Message.SyncDone(
+            uploaded = results.values.count { it.outcome == Outcome.UPLOADED },
+            downloaded = results.values.count { it.outcome == Outcome.DOWNLOADED },
+            attention = results.values.count {
+                it.outcome in setOf(Outcome.CONFLICT, Outcome.NEEDS_CONFIRM_MIDDAY, Outcome.BLOCKED_GAME_RUNNING, Outcome.FAILED)
+            },
+        )
+    }
+
+    /** The user decided a conflict (or allowed a download over mid-day progress). */
+    fun resolve(farm: String, keepLocal: Boolean) = withDrive { engine, _ ->
+        val local = _state.value.farms.first { it.folder == farm }
+        val r = if (keepLocal) engine.keepLocal(local) else engine.keepRemote(local)
+        _state.update { it.copy(sync = it.sync.copy(results = it.sync.results + (farm to r))) }
+        null
+    }
+
+    fun downloadFromVault(farm: String) = withDrive { engine, _ ->
+        val r = engine.downloadNew(farm)
+        _state.update {
+            it.copy(sync = it.sync.copy(
+                results = it.sync.results + (farm to r),
+                available = it.sync.available.filterNot { a -> a.farm == farm },
+                enabled = enabledFarms(),
+            ))
+        }
+        null
+    }
+
+    private var pendingEmail: String? = null
+
+    private fun finishLink(token: String) = runBusy { _ ->
+        val api = DriveApi(token)
+        val email = api.aboutEmail()
+        pendingEmail = email
+        val vault = Vault.find(api)
+        when {
+            vault == null -> {
+                _state.update { it.copy(sync = it.sync.copy(confirmCreateVaultFor = email)) }
+                null
+            }
+            syncPrefs.vaultId != null && syncPrefs.vaultId != vault.vaultId -> Message.VaultMismatch
+            else -> {
+                syncPrefs.email = email
+                syncPrefs.vaultId = vault.vaultId
+                _state.update { it.copy(sync = it.sync.copy(email = email)) }
+                Message.DriveLinked(email, newVault = false)
+            }
+        }
+    }
+
+    /** Gets a Drive token for [email]; if Google needs the user, launches its UI first. */
+    private fun withToken(email: String?, block: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                when (val o = DriveAuth.authorize(getApplication(), email)) {
+                    is AuthOutcome.Token -> block(o.accessToken)
+                    is AuthOutcome.NeedsUser -> {
+                        afterAuth = block
+                        _state.update { it.copy(sync = it.sync.copy(pendingAuth = o.intent)) }
+                    }
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(message = Message.Failed(e.message ?: "Drive")) }
+            }
+        }
+    }
+
+    /** Runs a sync job with an engine bound to the linked vault (refuses a different vault). */
+    private fun withDrive(block: suspend (SyncEngine, Vault) -> Message?) {
+        val email = syncPrefs.email ?: return
+        withToken(email) { token ->
+            runBusy { fs ->
+                val api = DriveApi(token)
+                val vault = Vault.find(api)
+                if (vault == null || vault.vaultId != syncPrefs.vaultId) return@runBusy Message.VaultMismatch
+                block(SyncEngine(fs, store, vault, syncPrefs, cacheDir, _state.value.gameVersion), vault)
+            }
+        }
+    }
+
+    private fun failed(farm: String, e: Throwable) =
+        FarmSyncResult(farm, Outcome.FAILED, detail = e.message ?: e.javaClass.simpleName)
+
+    private fun enabledFarms(): Set<String> =
+        getApplication<Application>().getSharedPreferences("sync", 0).getStringSet("enabled", emptySet())!!.toSet()
+
+    // ---------------------------------------------------------------- local
 
     fun refresh() {
         val ctx = getApplication<Application>()

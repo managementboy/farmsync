@@ -4,7 +4,7 @@ import app.farmsync.companion.saves.SaveInfo
 import org.json.JSONArray
 import org.json.JSONObject
 
-enum class SnapshotOrigin { MANUAL, AUTO_OPEN, BEFORE_RESTORE, BEFORE_IMPORT }
+enum class SnapshotOrigin { MANUAL, AUTO_OPEN, BEFORE_RESTORE, BEFORE_IMPORT, SYNC, BEFORE_SYNC }
 
 data class SnapshotFile(val name: String, val size: Long, val md5: String)
 

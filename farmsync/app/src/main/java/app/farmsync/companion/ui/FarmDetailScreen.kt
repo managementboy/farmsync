@@ -33,7 +33,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import app.farmsync.companion.R
+import androidx.compose.material3.Switch
 import app.farmsync.companion.saves.Farm
+import app.farmsync.companion.sync.FarmSyncResult
+import app.farmsync.companion.sync.Outcome
 import app.farmsync.companion.store.SnapshotMeta
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,6 +53,11 @@ fun FarmDetailScreen(
     onPin: (SnapshotMeta, Boolean) -> Unit,
     onRestore: (SnapshotMeta) -> Unit,
     onExport: () -> Unit,
+    driveLinked: Boolean,
+    syncEnabled: Boolean,
+    syncResult: FarmSyncResult?,
+    onSyncEnabled: (Boolean) -> Unit,
+    onResolve: (keepLocal: Boolean) -> Unit,
 ) {
     val info = farm?.info ?: snapshots.firstOrNull()?.info
     var confirm by remember { mutableStateOf<SnapshotMeta?>(null) }
@@ -110,6 +118,9 @@ fun FarmDetailScreen(
                     }
                 }
             }
+            if (driveLinked && farm != null) {
+                item { SyncSection(syncEnabled, syncResult, busy, onSyncEnabled, onResolve) }
+            }
             item {
                 Text(stringResource(R.string.snapshots_title, snapshots.size), style = MaterialTheme.typography.titleSmall)
             }
@@ -120,6 +131,45 @@ fun FarmDetailScreen(
                     s, isCurrent, onPin,
                     onRestore = if (farm != null && !isCurrent && !busy) ({ confirm = s }) else null,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncSection(
+    enabled: Boolean,
+    r: FarmSyncResult?,
+    busy: Boolean,
+    onEnabled: (Boolean) -> Unit,
+    onResolve: (keepLocal: Boolean) -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.sync_switch), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                Switch(checked = enabled, onCheckedChange = onEnabled, enabled = !busy)
+            }
+            Text(syncStatusText(enabled, r), style = MaterialTheme.typography.bodySmall)
+            r?.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            when (r?.outcome) {
+                Outcome.CONFLICT -> {
+                    Text(stringResource(R.string.conflict_explain), color = MaterialTheme.colorScheme.tertiary)
+                    r.local?.info?.let { Text(stringResource(R.string.conflict_here) + " " + gameDate(it)) }
+                    r.remote?.let { v ->
+                        Text(stringResource(R.string.conflict_drive, v.deviceName) + " " + (v.info?.let { gameDate(it) } ?: "?"))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { onResolve(true) }, enabled = !busy) { Text(stringResource(R.string.keep_this_device)) }
+                        OutlinedButton(onClick = { onResolve(false) }, enabled = !busy) { Text(stringResource(R.string.keep_drive)) }
+                    }
+                    Text(stringResource(R.string.conflict_safe_note), style = MaterialTheme.typography.bodySmall)
+                }
+                Outcome.NEEDS_CONFIRM_MIDDAY -> {
+                    Text(stringResource(R.string.midday_pull_explain), color = MaterialTheme.colorScheme.tertiary)
+                    Button(onClick = { onResolve(false) }, enabled = !busy) { Text(stringResource(R.string.download_anyway)) }
+                }
+                else -> Unit
             }
         }
     }

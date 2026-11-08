@@ -14,8 +14,8 @@ android {
         minSdk = 33
         targetSdk = 36
         // Bump on every service change: Shizuku restarts the UserService when this differs.
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
     }
 
     // One fixed household key for all builds. Its SHA-1 is registered for the Google Drive
@@ -66,5 +66,10 @@ dependencies {
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
 
+    implementation(libs.play.services.auth)
+    implementation(libs.kotlinx.coroutines.play.services)
+
     testImplementation(libs.junit)
+    // Real org.json for JVM unit tests (android.jar only has stubs).
+    testImplementation(libs.org.json)
 }
