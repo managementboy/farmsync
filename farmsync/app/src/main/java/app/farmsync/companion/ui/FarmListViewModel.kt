@@ -30,6 +30,8 @@ import app.farmsync.companion.sync.FarmSyncResult
 import app.farmsync.companion.sync.Outcome
 import app.farmsync.companion.sync.SyncEngine
 import app.farmsync.companion.sync.SyncPrefs
+import app.farmsync.companion.sync.SyncRunner
+import kotlinx.coroutines.sync.withLock
 import app.farmsync.companion.sync.Vault
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,7 +109,15 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     private var afterAuth: ((String) -> Unit)? = null
 
     init {
-        _state.update { it.copy(sync = it.sync.copy(email = syncPrefs.email, enabled = enabledFarms())) }
+        // Show the last known sync status per farm (also after the app was closed).
+        val log = SyncRunner.log(app)
+        val last = log.latestPerFarm().mapValues { (farm, e) ->
+            FarmSyncResult(farm, e.outcome, detail = e.detail)
+        }
+        _state.update {
+            it.copy(sync = it.sync.copy(email = syncPrefs.email, enabled = enabledFarms(), results = last,
+                lastSync = log.lastTime()))
+        }
     }
 
     // ---------------------------------------------------------------- Google Drive
@@ -154,19 +164,19 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Syncs every farm switched on for sync; lists vault farms that are not on this device. */
-    fun syncNow() = withDrive { engine, vault ->
-        val local = _state.value.farms
-        val results = local.filter { it.isComplete && syncPrefs.isEnabled(it.folder) }
-            .associate { it.folder to runCatching { engine.sync(it, it.folder) }.getOrElse { e -> failed(it.folder, e) } }
-        val onDevice = local.map { it.folder }.toSet()
-        val available = vault.farms().filter { it !in onDevice }
-            .map { runCatching { engine.sync(null, it) }.getOrElse { e -> failed(it, e) } }
-            .filter { it.outcome == Outcome.AVAILABLE }
+    /**
+     * Syncs every farm switched on for sync. Runs automatically whenever the app opens or comes
+     * back ([quiet] = only report if something happened), and from the button.
+     */
+    fun syncNow(quiet: Boolean = false) = withDrive { engine, vault ->
+        val report = SyncRunner.lock.withLock { SyncRunner.run(engine, vault, _state.value.farms, syncPrefs) }
+        val results = report.results
+        SyncRunner.log(getApplication()).append(if (quiet) "auto" else "button", results.values)
         _state.update {
-            it.copy(sync = it.sync.copy(results = it.sync.results + results, available = available,
+            it.copy(sync = it.sync.copy(results = it.sync.results + results, available = report.available,
                 lastSync = System.currentTimeMillis()))
         }
-        Message.SyncDone(
+        val done = Message.SyncDone(
             uploaded = results.values.count { it.outcome == Outcome.UPLOADED },
             downloaded = results.values.count { it.outcome == Outcome.DOWNLOADED },
             resolved = results.values.count { it.outcome in setOf(Outcome.RESOLVED_KEPT_LOCAL, Outcome.RESOLVED_TOOK_REMOTE) },
@@ -174,18 +184,32 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
                 it.outcome in setOf(Outcome.CONFLICT, Outcome.BLOCKED_GAME_RUNNING, Outcome.FAILED)
             },
         )
+        if (quiet && done.uploaded + done.downloaded + done.resolved + done.attention == 0) null else done
+    }
+
+    private var lastAutoSync = 0L
+
+    /** Called after every refresh: sync on open/return, at most every 30 seconds. */
+    private fun autoSync() {
+        if (syncPrefs.email == null || syncPrefs.vaultId == null) return
+        val now = System.currentTimeMillis()
+        if (now - lastAutoSync < 30_000) return
+        lastAutoSync = now
+        syncNow(quiet = true)
     }
 
     /** The user decided a conflict (or allowed a download over mid-day progress). */
     fun resolve(farm: String, keepLocal: Boolean) = withDrive { engine, _ ->
         val local = _state.value.farms.first { it.folder == farm }
-        val r = if (keepLocal) engine.keepLocal(local) else engine.keepRemote(local)
+        val r = SyncRunner.lock.withLock { if (keepLocal) engine.keepLocal(local) else engine.keepRemote(local) }
+        SyncRunner.log(getApplication()).append("user", listOf(r))
         _state.update { it.copy(sync = it.sync.copy(results = it.sync.results + (farm to r))) }
         null
     }
 
     fun downloadFromVault(farm: String) = withDrive { engine, _ ->
-        val r = engine.downloadNew(farm)
+        val r = SyncRunner.lock.withLock { engine.downloadNew(farm) }
+        SyncRunner.log(getApplication()).append("user", listOf(r))
         _state.update {
             it.copy(sync = it.sync.copy(
                 results = it.sync.results + (farm to r),
@@ -249,9 +273,6 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun failed(farm: String, e: Throwable) =
-        FarmSyncResult(farm, Outcome.FAILED, detail = e.message ?: e.javaClass.simpleName)
-
     private fun enabledFarms(): Set<String> =
         getApplication<Application>().getSharedPreferences("sync", 0).getStringSet("enabled", emptySet())!!.toSet()
 
@@ -281,6 +302,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
             } finally {
                 _state.update { it.copy(loading = false) }
             }
+            if (_state.value.error == null) autoSync()
         }
     }
 
