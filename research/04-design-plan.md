@@ -11,7 +11,7 @@ Method: apple-design skill (HIG principles, accessibility, color, typography, la
 
 | # | Finding | Severity | Guideline |
 |---|---|---|---|
-| 1 | Internal names are shown everywhere: `Certeza_417020443`, file lists with byte sizes, hash prefixes (`50262331`), "Shizuku listo", "versionCode". | High | `writing.md`: names come from what people recognise; `layout.md › Visual hierarchy`: "Use progressive disclosure" |
+| 1 | Internal names are shown everywhere: `Farm_123456789`, file lists with byte sizes, hash prefixes (`50262331`), "Shizuku listo", "versionCode". | High | `writing.md`: names come from what people recognise; `layout.md › Visual hierarchy`: "Use progressive disclosure" |
 | 2 | No visual hierarchy: every card is an equal grey box with 5–7 lines of small text, and the in-game date (the thing you recognise a save by) is just a line of body text. | High | `layout.md`: "Order content by relative importance" |
 | 3 | Actions are text buttons in the top bar ("Importar", "Copiar todas"); back is a "←" text button. | Medium | `branding.md`: "Express your brand with familiar components"; Android: icon buttons + overflow menu |
 | 4 | Status is told by long sentences in snackbars and cards rather than shown in place. | Medium | `feedback.md`: "Consider integrating status feedback into your interface" |
@@ -134,7 +134,7 @@ The technical status card (Shizuku / game version) disappears from the main scre
 | "Última copia: 8/11/26 1:58 p. m. (3 en total)" | "Copia de hoy, 13:58" |
 | "Copiar todas" (top bar) | ⋮ → "Crear copia de todas" |
 | "Sincronización terminada: 1 subidas, 0 descargadas, …" | "1 granja subida" (only what happened) |
-| `Certeza_417020443` on cards | hidden; shown in "Detalles técnicos" |
+| `Farm_123456789` on cards | hidden; shown in "Detalles técnicos" |
 | origin "automática / antes de restaurar" | an icon (◷ auto, ✋ manual, ☁ sync, ↺ before restore) plus the text for screen readers |
 
 ### Motion

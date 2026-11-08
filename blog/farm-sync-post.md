@@ -10,7 +10,7 @@ Stardew Valley lives on three of my screens: an Android phone, an Android tablet
 So on one long Sunday I sat down with Claude and asked for an Android app that backs up my farms and keeps them in sync through my own Google Drive. I am not a developer. By the evening there was a 1.0, it is called Farm Sync, and it is on [GitHub](https://github.com/managementboy/farmsync) under the MIT licence. In between, a second AI reviewed it six times and found 41 ways it could have eaten a farm.
 
 ![The Farm Sync farm list on the tablet](01_farm_list.png)
-*The farm list. La Maria lives on two devices; the two Certeza farms only survive as backups.*
+*The farm list on the tablet, in Spanish because the tablet is. La Maria lives on two devices; the two Certeza farms only survive as backups.*
 
 ## The short version
 
@@ -43,7 +43,7 @@ I gave one instruction more than once: do not break my saves. Claude turned that
 Rule five came from a mistake. During testing, a farm vanished from the phone, and Claude helpfully restored it from the backup. I had deleted it on purpose. That became "never re-create a farm the user deleted", and it is why an old farm now shows up as a backup, not as a farm.
 
 ![A farm's page with its backups](02_farm_detail.png)
-*A farm's page. Every row is a verified zip; "antes de restaurar" is the copy taken before a restore.*
+*La Maria's page. Every row is a verified zip, and the green line marks the one that matches the farm right now.*
 
 ## Sync, and the decision I did not want to make
 
@@ -54,7 +54,7 @@ Then came conflicts: the same farm played on two devices since the last sync. Th
 Sync also runs whenever the app opens and never in the background. I would rather know when it happens than pay for it in battery.
 
 ![The restore dialog](03_restore.png)
-*Restoring an older day. With sync on, the restored day becomes the shared version everywhere.*
+*Restoring an older day. It warns about going back in time, says the restored day will be shared, and keeps a backup first.*
 
 ## It looked like an app for developers
 
