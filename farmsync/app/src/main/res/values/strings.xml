@@ -233,4 +233,6 @@
     <string name="recovered_kept_current">%1$s: an interrupted write was found, but the farm was played since. It was kept exactly as it is, and a backup was made.</string>
     <string name="auth_retry">Google sign-in finished, but Android had closed Farm Sync meanwhile. Please tap the action again.</string>
     <string name="write_kept_current">Stopped: Stardew saved this farm while it was being written. Your new progress was kept exactly as it is, and a backup was made. Nothing was replaced.</string>
+    <string name="fail_exists_here">This farm is already on this device, so nothing was downloaded. It stays as it is and syncs like your other farms.</string>
+    <string name="fail_too_many_branches">Your restored day wasn\'t shared yet: Drive holds too many separate versions of this farm to replace them all at once. It stays on this device and is tried again at the next sync.</string>
 </resources>

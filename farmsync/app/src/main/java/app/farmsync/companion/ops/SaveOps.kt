@@ -25,6 +25,11 @@ class OpBlocked(val reason: Reason, detail: String = reason.name) : Exception(de
         NEEDS_REPAIR,
         /** The new files are not a complete, valid save for this farm (wrong root, ID, broken XML). */
         INVALID_SAVE,
+        /**
+         * An earlier download of this farm ended up complete (usable) and nothing changed since:
+         * it is a normal farm now. Updating it must go through [SaveOps.replace] (snapshot, checks).
+         */
+        FINISHED_EARLIER,
     }
 }
 
@@ -193,6 +198,7 @@ class SaveOps(
                 if (isOnlyPartOf(name, pending)) {
                     if (pending.deliberate) onDeliberate(name)
                     journal.clear(name)
+                    throw OpBlocked(OpBlocked.Reason.FINISHED_EARLIER)
                 }
                 throw OpBlocked(OpBlocked.Reason.FARM_EXISTS)
             }

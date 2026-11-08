@@ -239,4 +239,6 @@
     <string name="recovered_kept_current">%1$s: se encontró una escritura interrumpida, pero la granja se jugó después. Se dejó exactamente como está y se hizo una copia.</string>
     <string name="auth_retry">El inicio de sesión de Google terminó, pero Android había cerrado Farm Sync mientras tanto. Vuelve a pulsar la acción.</string>
     <string name="write_kept_current">Detenido: Stardew guardó esta granja mientras se escribía. Tu progreso nuevo se dejó exactamente como está y se hizo una copia. No se sustituyó nada.</string>
+    <string name="fail_exists_here">Esta granja ya está en este dispositivo, así que no se descargó nada. Se queda como está y se sincroniza como tus otras granjas.</string>
+    <string name="fail_too_many_branches">Tu día restaurado aún no se compartió: Drive tiene demasiadas versiones distintas de esta granja para sustituirlas todas a la vez. Se queda en este dispositivo y se vuelve a intentar en la próxima sincronización.</string>
 </resources>

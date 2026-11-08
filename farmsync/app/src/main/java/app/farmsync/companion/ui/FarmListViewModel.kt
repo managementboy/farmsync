@@ -120,6 +120,11 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
     private val syncPrefs = SyncPrefs(app)
     /** What to run once the user finished Google's chooser/consent. */
     private var afterAuth: ((String) -> Unit)? = null
+    /** The action waiting on Google's sign-in, in saved state (never a token). */
+    private val pendingAuth = PendingAuth(object : SavedValues {
+        override fun get(key: String): Any? = saved.get<Any>(key)
+        override fun set(key: String, value: Any?) { if (value == null) saved.remove<Any>(key) else saved[key] = value }
+    })
     /** A Google authorization is in progress: further requests wait for it instead of racing (F17). */
     private var authInFlight = false
 
@@ -138,18 +143,10 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
             it.copy(sync = it.sync.copy(email = syncPrefs.email, disabled = syncPrefs.disabled, results = last,
                 lastSync = log.lastTime()))
         }
-        // Android closed the app after Google's answer was taken but before its job started (T03):
-        // the answer is gone, the action is not. It starts again once the app is ready.
-        val unstarted = saved.get<String>(KEY_PENDING_AUTH)
-        if (saved.get<Boolean>(KEY_RESULT_TAKEN) == true && unstarted != null) {
-            clearPendingAuth()
-            deferred.addLast { restartAction(unstarted) }
-        }
-    }
-
-    private fun clearPendingAuth() {
-        saved.remove<String>(KEY_PENDING_AUTH)
-        saved.remove<Boolean>(KEY_RESULT_TAKEN)
+        // Android closed the app after the user said yes to Google but before the job started
+        // (T03): it starts again once the app is ready. It stays recorded until it really
+        // starts, so a further restart still finds it (U02).
+        pendingAuth.unstartedAfterRestart()?.let { action -> deferred.addLast { restartAction(action) } }
     }
 
     /** Starts a saved action from the beginning (Google answers again, normally without asking). */
@@ -158,7 +155,10 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
         action.startsWith(ACTION_DOWNLOAD) -> downloadFromVault(action.removePrefix(ACTION_DOWNLOAD))
         action.startsWith(ACTION_MIDDAY) -> downloadAnyway(action.removePrefix(ACTION_MIDDAY))
         // Linking involves choosing an account: ask instead of guessing.
-        else -> _state.update { it.copy(message = Message.AuthRetry) }
+        else -> {
+            pendingAuth.clear()
+            _state.update { it.copy(message = Message.AuthRetry) }
+        }
     }
 
     // ---------------------------------------------------------------- Google Drive
@@ -166,25 +166,29 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
     /** Links this device to a Google account's vault. Google shows its account chooser. */
     fun linkDrive() = withToken(email = null, action = ACTION_LINK) { token -> finishLink(token) }
 
-    fun onAuthResult(data: Intent?) {
+    /**
+     * Google's screen came back. [ok]: the user finished it (RESULT_OK). Only then, and only with
+     * a valid token, does the waiting action continue; a canceled or failed sign-in is cleared
+     * and never resumes (U02). After Android recreated the app, the original callback is gone and
+     * the saved action continues instead (F17, R08); it is cleared once its job starts (S06).
+     */
+    fun onAuthResult(ok: Boolean, data: Intent?) {
         authInFlight = false
-        // After Android recreated the app while Google's screen was open, the original callback
-        // is gone; the action itself was saved, so exactly that action continues (F17, R08).
-        // The saved action is removed only when its job actually starts (S06).
-        val action = saved.get<String>(KEY_PENDING_AUTH)
-        val next = afterAuth ?: resumeAction(action)
+        val callback = afterAuth
         afterAuth = null
+        val token = if (ok) runCatching { DriveAuth.tokenFromResult(getApplication(), data) }.getOrNull()?.takeIf { it.isNotBlank() } else null
+        val action = pendingAuth.answered(ok, tokenValid = token != null)
+        if (token == null) {
+            if (ok) _state.update { it.copy(message = Message.AuthRetry) }
+            return // canceled: nothing runs, now or after a restart
+        }
+        val next = callback ?: resumeAction(action)
         if (next == null) {
-            clearPendingAuth()
+            pendingAuth.clear()
             _state.update { it.copy(message = Message.AuthRetry) }
             return
         }
-        saved[KEY_RESULT_TAKEN] = true // the answer is used now; the action stays saved until it starts
-        try {
-            next(DriveAuth.tokenFromResult(getApplication(), data))
-        } catch (e: Exception) {
-            _state.update { it.copy(message = Message.Failed(SyncRunner.reasonCode(e))) }
-        }
+        next(token)
     }
 
     fun authLaunched() = _state.update { it.copy(sync = it.sync.copy(pendingAuth = null)) }
@@ -275,8 +279,9 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
         _state.update {
             it.copy(sync = it.sync.copy(
                 results = it.sync.results + (farm to r),
-                // Only a finished download leaves the list; otherwise it stays there to retry.
-                available = if (r.outcome == Outcome.DOWNLOADED) it.sync.available.filterNot { a -> a.farm == farm } else it.sync.available,
+                // A finished download leaves the list, and so does a stale row for a farm that is on
+                // this device now; any other failure stays there to retry.
+                available = if (r.outcome == Outcome.DOWNLOADED || r.detail == "exists_here") it.sync.available.filterNot { a -> a.farm == farm } else it.sync.available,
                 disabled = syncPrefs.disabled,
             ))
         }
@@ -329,8 +334,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
                     }
                     is AuthOutcome.NeedsUser -> {
                         afterAuth = block // stays in flight until onAuthResult
-                        saved[KEY_PENDING_AUTH] = action // survives Android closing the app meanwhile
-                        saved.remove<Boolean>(KEY_RESULT_TAKEN)
+                        pendingAuth.requested(action) // survives Android closing the app meanwhile
                         _state.update { it.copy(sync = it.sync.copy(pendingAuth = o.intent)) }
                     }
                 }
@@ -568,7 +572,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
             if (fromAuth) deferred.addLast { runBusy(fromAuth = true, block) }
             return
         }
-        if (fromAuth) clearPendingAuth() // accepted: it runs now
+        if (fromAuth) pendingAuth.started() // accepted: it runs now
         // Say it plainly instead of Shizuku's internal "binder" errors.
         if (ShizukuGate.status(getApplication()) != ShizukuStatus.READY) {
             _state.update { it.copy(message = Message.ShizukuMissing) }
@@ -594,7 +598,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
             if (fromAuth) deferred.addLast { runBusyNoFs(fromAuth = true, block) }
             return
         }
-        if (fromAuth) clearPendingAuth()
+        if (fromAuth) pendingAuth.started()
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
             val msg = try {
@@ -608,8 +612,6 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
     }
 
     companion object {
-        private const val KEY_PENDING_AUTH = "pendingAuth"
-        private const val KEY_RESULT_TAKEN = "pendingAuthResultTaken"
         private const val ACTION_LINK = "link"
         private const val ACTION_SYNC = "sync"
         private const val ACTION_DOWNLOAD = "download:"

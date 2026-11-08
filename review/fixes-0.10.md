@@ -114,3 +114,63 @@ All three findings in `codex-recheck-0.10.2.md` were confirmed and fixed. There 
 - The household vault migration.
 - The Google sign-in flows after a process death.
 - TalkBack, and layout at 200% font size.
+
+# Response to the 0.10.3 re-check and fix request (Farm Sync 0.10.4)
+
+Baseline `a9e233b`. All three findings in `codex-recheck-0.10.3.md` were confirmed and fixed, following `fix-request-0.10.3.md`.
+
+## Guarantees and what proves them (JVM, synthetic data)
+
+**1. A Download never uploads a farm (U01).** `SyncEngine.downloadNew` only does one of two things:
+- **Missing farm:** installs it as a new folder.
+- **Interrupted download:** finishes this app's own earlier download of the same farm.
+
+The details:
+- **Retry recognition.** A retry is recognised only by this app's own write journal; an existing folder on its own is not proof.
+- **Usable earlier download.** If the earlier download is usable and unchanged, `SaveOps.addNew` reports `FINISHED_EARLIER`. It is then updated through `replace()`: a verified snapshot first, the expected fingerprint, no mid-day overwrite, and the live state rechecked just before the commit.
+- **Farm here for another reason.** Any other existing farm returns `FAILED/exists_here`: no write, no upload. The stale row is removed and the player is told in their language.
+- **No full sync.** The full-sync fallback is gone.
+
+| Test | Proves |
+|---|---|
+| `SyncEngineTest.aStaleDownloadRowNeverUploadsAnExistingFarm` | Stale row after a local import, sync on: zero uploads, Drive versions and head unchanged, local files unchanged, `exists_here` |
+| `…aStaleDownloadRowNeverUploadsAnExistingFarmWithSyncOff` | The same with sync switched off for the farm |
+| `…aGenuineRetryOfAUsableDownloadUpdatesItSafelyWithoutUploading` | A genuine retry updates to the newer Drive version, keeps a `BEFORE_SYNC` snapshot of the old day, and uploads nothing |
+| `…aRetryNeverOverwritesADayPlayedInAnEarlierUsableDownload` | The player saves in the usable farm before the retry writes: nothing written, nothing uploaded, kept and backed up by recovery |
+| `…aRetryStopsIfThePlayerSavesWhileItStagesFiles` | The player saves while the retry stages its files: `RETRY_LATER`, no commit, no upload, the played day kept |
+| `SaveOpsTest.aDownloadThatEndedUpUsableIsNeverOverwrittenByTheNewFarmPath` | The no-snapshot new-farm path never writes a complete folder |
+
+**2. A canceled Google sign-in never resumes an action (U02).**
+- **Token check first.** `onAuthResult` gets the activity result code. Only `RESULT_OK` with a valid, non-empty token makes the action eligible to continue.
+- **Cancel or failure.** Either one clears the pending action for good.
+- **Saved state.** The pending action lives in a small, testable `PendingAuth` holding only the action name and an "authorized" flag, never a token.
+- **After a restart.** An authorized action that never started is found after a restart and stays recorded until its job starts. Another restart therefore still finds it. Account linking asks the player to tap again instead.
+
+| Test | Proves |
+|---|---|
+| `PendingAuthTest.aCancelledMiddayAuthorizationIsNeverReplayed` | Cancel after "Download anyway", then recreate: nothing is left that could start it |
+| `…aFinishedScreenWithoutAValidTokenIsNotReplayedEither` | OK without a usable token: cleared too |
+| `…anAuthorizedActionSurvivesRepeatedRestartsUntilItStarts` | A yes queued behind start-up survives two restarts and is cleared once it starts, so it runs once |
+| `…anUnansweredRequestIsNotRunAfterARestart` / `aNewRequestResetsAnEarlierYes` | No replay without an answer, and none from an older answer |
+
+**3. Old copies don't count against a restore's parent limit (U03).**
+- **Restore parents.** A restore names only the open (not lost) ends it replaces. It is flagged deliberate, so older history and copies don't need to be listed.
+- **Normal push parents.** A normal push lists its base and only those copies of the same save that are still ends.
+- **Too many ends.** More than 72 genuinely open ends is still refused before anything is uploaded or marked. The restore stays pending, with a clear message.
+
+| Test | Proves |
+|---|---|
+| `SyncEngineTest.historicalCopiesDoNotExhaustTheRestoreParentBudget` | 80 historical copies on one line: the restore publishes, becomes the shared version, and has at most 2 parents |
+| `…aRestoreThatCannotNameEveryLineIsNotPublished` | 73 open ends: nothing published or marked, Drive head unchanged, restore still pending |
+
+**JVM result:** 97 tests, 0 failures (`./gradlew :app:testDebugUnitTest`), with synthetic fixtures only.
+
+## Release readiness: not established by these tests
+
+These still need Android or a disposable Drive vault:
+- **The save service on emulated storage:** `O_NOFOLLOW` staging, `fchmod`, `Os.remove` and `removeIntroducedFile`.
+- **The SAX parser on Android's platform parser.**
+- **The window in which Stardew could start between two live renames.**
+- **The real Google sign-in lifecycle:** cancel, process death while the screen is open, result delivered during start-up.
+- **The migration of a disposable copy of an old vault on real Drive,** before the household vault.
+- **Accessibility:** TalkBack, and 200% font size on phone and tablet.

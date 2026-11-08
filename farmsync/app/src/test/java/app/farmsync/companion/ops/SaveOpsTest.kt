@@ -391,7 +391,8 @@ class SaveOpsTest {
         d.fs.killAfterRenames = 2 // all files of A in place, verification never ran
         try { ops(d).addNew(SnapshotSource(a.store, snapA), v); fail() } catch (_: Killed) {}
         val commits = d.fs.commits
-        assertBlocked(OpBlocked.Reason.FARM_EXISTS) { ops(d).addNew(SnapshotSource(b.store, snapB), v) }
+        // Recognised as our own finished download: not written here, handed to the update path.
+        assertBlocked(OpBlocked.Reason.FINISHED_EARLIER) { ops(d).addNew(SnapshotSource(b.store, snapB), v) }
         assertEquals(snapA.fingerprint, fp(d)) // untouched: it is a normal farm now
         assertEquals(commits, d.fs.commits)
         assertFalse(d.journal.has(farm))

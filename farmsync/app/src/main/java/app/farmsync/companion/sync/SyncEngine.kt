@@ -74,22 +74,39 @@ class SyncEngine(
         }
     }
 
-    /** A farm that is only in the vault: add it to this device as a new folder. */
+    /**
+     * The Download action for a farm that is only in the vault. It only ever downloads, never
+     * uploads (U01): it adds the farm as a new folder, or finishes this app's own interrupted
+     * download of it. A farm that is on this device for any other reason (an import since the
+     * row appeared, say) is left exactly as it is, and so is the vault.
+     */
     fun downloadNew(farm: String): FarmSyncResult {
         val head = VersionGraph.head(vault.versions(farm)) ?: return FarmSyncResult(farm, Outcome.FAILED, detail = "no_version")
         return try {
-            ops.addNew(fetch(head, farm), installedGameVersion)
-                .also { File(tempDir, "sync").deleteRecursively() }
+            val candidate = fetch(head, farm)
+            try {
+                ops.addNew(candidate, installedGameVersion)
+            } catch (e: OpBlocked) {
+                if (e.reason != OpBlocked.Reason.FINISHED_EARLIER) throw e
+                // Our earlier download ended up usable and unchanged: update it like a pull,
+                // with a verified snapshot and the live state rechecked right before the commit.
+                val local = FarmScanner(fs).scan().firstOrNull { it.folder == farm } ?: throw OpBlocked(OpBlocked.Reason.CHANGED)
+                ops.replace(candidate, installedGameVersion, SnapshotOrigin.BEFORE_SYNC,
+                    expectedFingerprint = local.fingerprint, allowMidday = false)
+            }
             state.setBase(farm, head.id)
             state.setEnabled(farm, true)
             FarmSyncResult(farm, Outcome.DOWNLOADED, remote = head)
         } catch (e: OpBlocked) {
-            // The farm is (now) a usable farm on this device, e.g. an earlier download ended up
-            // complete: it is updated like any other farm, with a snapshot first (T01).
-            val local = if (e.reason == OpBlocked.Reason.FARM_EXISTS) FarmScanner(fs).scan().firstOrNull { it.folder == farm } else null
-            if (local != null && local.isComplete && !journal.has(farm)) sync(local, farm) else blocked(farm, e, head)
+            if (e.reason == OpBlocked.Reason.FARM_EXISTS) FarmSyncResult(farm, Outcome.FAILED, remote = head, detail = "exists_here")
+            else blocked(farm, e, head)
         } catch (e: OpFailed) {
-            FarmSyncResult(farm, Outcome.FAILED, remote = head, detail = "write_failed")
+            when {
+                e.keptCurrent -> FarmSyncResult(farm, Outcome.RETRY_LATER, remote = head)
+                else -> FarmSyncResult(farm, Outcome.FAILED, remote = head, detail = "write_failed")
+            }
+        } finally {
+            File(tempDir, "sync").deleteRecursively()
         }
     }
 
@@ -99,16 +116,24 @@ class SyncEngine(
      */
     private fun push(local: Farm, versions: List<VersionEntry>, base: String?, forced: Boolean): FarmSyncResult {
         val farm = local.folder
-        // Continues from the base and from every other upload of the very same save (two devices
-        // that uploaded identical saves are one point in history, not two lines of play).
-        val baseFp = versions.firstOrNull { it.id == base }?.fingerprint
-        val equivalent = versions.filter { baseFp != null && it.fingerprint == baseFp }.map { it.id }
-        // A deliberate restore replaces every current line of play by naming them all as its
-        // parents, in one immutable upload: nothing changes in the vault until it is there (S01).
-        val tips = if (forced) VersionGraph.tips(versions).filter { !it.lost }.sortedWith(ConflictPolicy.order.reversed()) else emptyList()
-        val wanted = (listOfNotNull(base) + equivalent + tips.map { it.id }).distinct()
-        // A restore must name every line it replaces. If that can't be written (more than 72 open
-        // lines, practically never), nothing is published and the restore stays pending (T02).
+        val allTips = VersionGraph.tips(versions)
+        val wanted = if (forced) {
+            // A deliberate restore replaces exactly the current, open lines of play: it names
+            // them all as its parents, in one immutable upload, so nothing changes in the vault
+            // until it is there (S01). Older history and copies are already covered by those
+            // lines and are not listed (U03). The restore is flagged deliberate, so it is a new
+            // end of history even when its save matches an old one.
+            allTips.filter { !it.lost }.ifEmpty { listOfNotNull(VersionGraph.head(versions)) }
+                .sortedWith(ConflictPolicy.order.reversed()).map { it.id }
+        } else {
+            // Normal play continues from the base and from any other upload of the very same save
+            // that is still an end (identical uploads are one point in history, not two lines).
+            val baseFp = versions.firstOrNull { it.id == base }?.fingerprint
+            val copies = allTips.filter { baseFp != null && it.fingerprint == baseFp }.map { it.id }
+            (listOfNotNull(base) + copies).distinct()
+        }
+        // A restore must name every open line it replaces. If that can't be written (more than
+        // 72 open lines, practically never), nothing is published and it stays pending (T02).
         if (forced && wanted.size > VersionProps.MAX_PARENTS) return FarmSyncResult(farm, Outcome.FAILED, detail = "too_many_branches")
         val parents = wanted.take(VersionProps.MAX_PARENTS)
         // An upload of exactly this that an interrupted run left behind is reused, not repeated.

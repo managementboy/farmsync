@@ -187,7 +187,7 @@ class SyncEngineTest {
     }
 
     @Test
-    fun aRetriedDownloadOfAUsableFarmGoesThroughTheSafeUpdatePath() {
+    fun aRetryNeverOverwritesADayPlayedInAnEarlierUsableDownload() {
         phone.fs.writeFarm(farm, day = 5, playedMs = 5000)
         sync(phone)
         tablet.fs.killAfterRenames = 2 // the first download ends up complete, unverified
@@ -195,15 +195,36 @@ class SyncEngineTest {
         phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
         sync(phone) // Drive moves on
         // The player opens the usable farm and saves day 9 while the retry is downloading.
-        var n = 0
-        vault.duringDownload = { if (++n == 2) tablet.fs.writeFarm(farm, day = 9, playedMs = 9000) }
+        vault.duringDownload = { tablet.fs.writeFarm(farm, day = 9, playedMs = 9000) }
         val commits = tablet.fs.commits
+        val uploads = vault.all.size
         val r = engine(tablet).downloadNew(farm)
-        assertEquals(Outcome.RETRY_LATER, r.outcome)
-        assertEquals(9, day(tablet)) // nothing replaced
-        assertEquals(commits, tablet.fs.commits) // stopped before writing anything
+        assertEquals("exists_here", r.detail) // not ours any more: left alone, row removed
+        assertEquals(9, day(tablet))
+        assertEquals(commits, tablet.fs.commits) // nothing written
+        assertEquals(uploads, vault.all.size) // a Download never uploads
+        val rec = app.farmsync.companion.ops.SaveOps(tablet.fs, tablet.store, tablet.temp, tablet.journal)
+            .recover(tablet.journal.get(farm)!!)
+        assertEquals(app.farmsync.companion.ops.Recovery.KEPT_CURRENT, rec) // and backed up at the next start
+    }
+
+    @Test
+    fun aRetryStopsIfThePlayerSavesWhileItStagesFiles() {
+        phone.fs.writeFarm(farm, day = 5, playedMs = 5000)
+        sync(phone)
+        tablet.fs.killAfterRenames = 2
+        assertTrue(runCatching { engine(tablet).downloadNew(farm) }.isFailure)
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        sync(phone)
+        // This time the save lands while the update is staging its files.
+        tablet.fs.onStage = { tablet.fs.writeFarm(farm, day = 9, playedMs = 9000) }
+        val commits = tablet.fs.commits
+        val uploads = vault.all.size
+        assertEquals(Outcome.RETRY_LATER, engine(tablet).downloadNew(farm).outcome)
+        assertEquals(9, day(tablet))
+        assertEquals(commits, tablet.fs.commits)
+        assertEquals(uploads, vault.all.size)
         assertFalse(tablet.journal.has(farm))
-        assertEquals(Outcome.RESOLVED_KEPT_LOCAL, sync(tablet).outcome) // day 9 (more play) is shared next
     }
 
     @Test
@@ -221,6 +242,78 @@ class SyncEngineTest {
         assertEquals(before, vault.all) // nothing published, nothing marked
         assertTrue(phone.state.isForced(farm))
         assertEquals(5, day(phone))
+    }
+
+    // ---------------------------------------------------------------- re-check 0.10.3 (U01, U03)
+
+    /** The phone has the farm in Drive; the tablet never had it: a Download row. */
+    private fun remoteOnly() {
+        phone.fs.writeFarm(farm, day = 5, playedMs = 5000)
+        sync(phone)
+        assertEquals(Outcome.AVAILABLE, engine(tablet).sync(null, farm).outcome)
+    }
+
+    private fun assertStaleRowChangesNothing() {
+        // Before the next sync rebuilds the list, the tablet imports its own copy (day 3).
+        tablet.fs.writeFarm(farm, day = 3, playedMs = 3000)
+        tablet.state.setForced(farm, true) // as an import with Drive linked marks it
+        val drive = vault.all.toList()
+        val headBefore = head()
+        val local = fp(tablet)
+        val r = engine(tablet).downloadNew(farm) // the stale row's Download
+        assertEquals(Outcome.FAILED, r.outcome)
+        assertEquals("exists_here", r.detail) // the app removes the row and says why
+        assertEquals(drive, vault.all) // zero uploads, nothing marked
+        assertEquals(headBefore, head())
+        assertEquals(local, fp(tablet)) // the imported farm is untouched
+    }
+
+    @Test
+    fun aStaleDownloadRowNeverUploadsAnExistingFarm() {
+        remoteOnly()
+        assertStaleRowChangesNothing()
+    }
+
+    @Test
+    fun aStaleDownloadRowNeverUploadsAnExistingFarmWithSyncOff() {
+        remoteOnly()
+        tablet.state.setEnabled(farm, false)
+        assertStaleRowChangesNothing()
+    }
+
+    @Test
+    fun aGenuineRetryOfAUsableDownloadUpdatesItSafelyWithoutUploading() {
+        phone.fs.writeFarm(farm, day = 5, playedMs = 5000)
+        sync(phone)
+        tablet.fs.killAfterRenames = 2 // the first download ends up complete, unverified
+        assertTrue(runCatching { engine(tablet).downloadNew(farm) }.isFailure)
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        sync(phone)
+        val uploads = vault.all.size
+        assertEquals(Outcome.DOWNLOADED, engine(tablet).downloadNew(farm).outcome)
+        assertEquals(6, day(tablet))
+        assertEquals(uploads, vault.all.size)
+        assertTrue(tablet.store.list(farm).any { it.info?.day == 5 && it.origin == SnapshotOrigin.BEFORE_SYNC })
+        assertEquals(Outcome.UP_TO_DATE, sync(tablet).outcome)
+    }
+
+    @Test
+    fun historicalCopiesDoNotExhaustTheRestoreParentBudget() {
+        shared()
+        // 80 uploads of the same save, one after another (one line, only the last is an end).
+        var prev = head()
+        repeat(80) { i ->
+            prev = vault.upload(farm, prev.copy(id = "copy%02d".format(i), parents = listOf(prev.id)), vault.zipOf(prev))
+        }
+        tablet.fs.writeFarm(farm, day = 9, playedMs = 9000)
+        sync(tablet)
+        sync(phone)
+        val old = phone.store.list(farm).first { it.info?.day == 5 }
+        app.farmsync.companion.ops.SaveOps(phone.fs, phone.store, phone.temp, phone.journal).restore(old, "1.6.15.3")
+        phone.state.setForced(farm, true)
+        assertEquals(Outcome.UPLOADED, sync(phone).outcome)
+        assertEquals(5, head().info!!.day)
+        assertTrue(head().parents.size <= 2)
     }
 
     @Test

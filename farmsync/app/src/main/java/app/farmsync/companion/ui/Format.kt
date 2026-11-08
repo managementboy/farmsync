@@ -126,6 +126,8 @@ fun failureText(code: String): String = stringResource(
         code.startsWith("drive_401") || code.startsWith("drive_403_insufficient") || code.startsWith("drive_403_auth") -> R.string.fail_drive_auth
         code.startsWith("drive_403") || code.startsWith("drive_429") || code.startsWith("drive_5") -> R.string.fail_drive_quota
         code == "not_visible" -> R.string.fail_not_visible
+        code == "exists_here" -> R.string.fail_exists_here
+        code == "too_many_branches" -> R.string.fail_too_many_branches
         code.startsWith("write_failed") -> R.string.fail_write
         code == "game_version_unknown" -> R.string.blocked_version_unknown
         code == "newer_game_version" -> R.string.blocked_newer_version

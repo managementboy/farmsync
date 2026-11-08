@@ -97,7 +97,7 @@ fun FarmListScreen(vm: FarmListViewModel) {
         uri?.let(vm::prepareImport)
     }
     val googleAuth = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
-        vm.onAuthResult(r.data)
+        vm.onAuthResult(r.resultCode == android.app.Activity.RESULT_OK, r.data)
     }
     LaunchedEffect(state.sync.pendingAuth) {
         state.sync.pendingAuth?.let {
@@ -406,6 +406,7 @@ fun messageText(m: Message): String = when (m) {
             OpBlocked.Reason.MIDDAY -> R.string.blocked_midday
             OpBlocked.Reason.NEEDS_REPAIR -> R.string.blocked_needs_repair
             OpBlocked.Reason.INVALID_SAVE -> R.string.blocked_invalid_save
+            OpBlocked.Reason.FINISHED_EARLIER -> R.string.blocked_farm_exists
         }
     )
     is Message.ImportRejected -> stringResource(

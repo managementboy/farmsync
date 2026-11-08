@@ -34,6 +34,8 @@ class FakeSaveFs(val root: File) : SaveFs {
     /** Runs at the start of every commit (e.g. the player saving just before). */
     var beforeCommit: ((String) -> Unit)? = null
     var failCreateFolder = false
+    /** Runs (once) when the next file is staged (e.g. the game saving meanwhile). */
+    var onStage: (() -> Unit)? = null
     /** Throw [Killed] when the next file is staged. */
     var killOnStage = false
     /** Runs after every successful commit (e.g. the game starting and saving right then). */
@@ -70,6 +72,7 @@ class FakeSaveFs(val root: File) : SaveFs {
     override fun stage(farm: String, fileName: String, source: File, md5: String) {
         require(fileName in SavePaths.stageable(farm))
         if (killOnStage) { killOnStage = false; throw Killed() }
+        onStage?.let { onStage = null; it() }
         check(!gameRunning) { "Stardew is running" }
         val tmp = File(dir(farm), SavePaths.stagingName(fileName))
         source.copyTo(tmp, overwrite = true)
