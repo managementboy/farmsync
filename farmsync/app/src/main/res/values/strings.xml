@@ -123,6 +123,82 @@
     <string name="sync_waiting_midday">Drive has a newer day; it downloads after you sleep in-game here (mid-day progress is not overwritten).</string>
     <string name="sync_resolved_local">✓ Played on two devices: kept this one (more play time). The other version is kept in Drive.</string>
     <string name="sync_resolved_remote">↓ Played on two devices: took the other one (more play time). This device\'s version is kept in a snapshot and in Drive.</string>
+    <!-- v1.0 pixel design -->
+    <string name="a11y_day_tile">Day %1$d of %2$s, year %3$d</string>
+    <string name="a11y_day_unknown">Unknown day</string>
+    <string name="year_short">year %1$d</string>
+    <string name="game_day">%2$s %1$d · year %3$d</string>
+    <string name="play_time">%1$d h %2$02d min</string>
+    <string name="played">%1$s played</string>
+    <string name="today_at">Today, %1$s</string>
+    <string name="yesterday_at">Yesterday, %1$s</string>
+    <string name="st_off">Sync off</string>
+    <string name="st_not_yet">Not synced yet</string>
+    <string name="st_synced">Synced</string>
+    <string name="st_uploaded">Uploaded to Drive</string>
+    <string name="st_downloaded">Newer day downloaded</string>
+    <string name="st_resolved_local">Played on two devices: kept this one</string>
+    <string name="st_resolved_remote">Played on two devices: took the other one</string>
+    <string name="st_waiting_midday">Newer day waits until you sleep in-game</string>
+    <string name="st_game_open">Close Stardew to download</string>
+    <string name="st_conflict">Choose which version continues</string>
+    <string name="st_failed">Couldn\'t sync</string>
+    <string name="st_available">In Drive</string>
+    <string name="st_deleted_here">Deleted on this device</string>
+    <string name="more_options">More options</string>
+    <string name="settings_title">Settings</string>
+    <string name="your_farms">Your farms</string>
+    <string name="banner_shizuku_off">Farm Sync can\'t reach your saves</string>
+    <string name="banner_shizuku_off_hint">Connect to your home Wi-Fi, turn on Wireless debugging and start Shizuku.</string>
+    <string name="banner_syncing">Syncing…</string>
+    <plurals name="banner_attention">
+        <item quantity="one">%1$d farm needs a look</item>
+        <item quantity="other">%1$d farms need a look</item>
+    </plurals>
+    <string name="banner_attention_hint">Open the farm to see why.</string>
+    <string name="banner_close_game">Close Stardew to download</string>
+    <string name="banner_close_game_hint">Swipe it away in Recent apps, then open Farm Sync again.</string>
+    <string name="banner_all_synced">All synced</string>
+    <string name="banner_last_sync">%1$s · Google Drive</string>
+    <string name="snapshot_of">Last backup: %1$s</string>
+    <string name="archived_hint_short">Only in backups on this device</string>
+    <plurals name="done_uploaded">
+        <item quantity="one">%1$d farm uploaded</item>
+        <item quantity="other">%1$d farms uploaded</item>
+    </plurals>
+    <plurals name="done_downloaded">
+        <item quantity="one">%1$d farm downloaded</item>
+        <item quantity="other">%1$d farms downloaded</item>
+    </plurals>
+    <plurals name="done_resolved">
+        <item quantity="one">%1$d conflict resolved</item>
+        <item quantity="other">%1$d conflicts resolved</item>
+    </plurals>
+    <plurals name="done_attention">
+        <item quantity="one">%1$d needs a look</item>
+        <item quantity="other">%1$d need a look</item>
+    </plurals>
+    <string name="back">Back</string>
+    <string name="share_farm">Share farm</string>
+    <string name="share">Share</string>
+    <string name="create_snapshot">Create backup</string>
+    <string name="backups_title">Backups</string>
+    <string name="tech_details">Technical details</string>
+    <string name="tech_folder">Folder</string>
+    <string name="tech_game_version">Game version</string>
+    <string name="pinned">Pinned</string>
+    <string name="settings_drive">Google Drive</string>
+    <string name="settings_account">Account</string>
+    <string name="settings_last_sync">Last sync</string>
+    <string name="settings_diagnostics">Diagnostics</string>
+    <string name="diag_ready">Running</string>
+    <string name="diag_not_running">Not running</string>
+    <string name="diag_no_permission">No permission</string>
+    <string name="diag_not_installed">Not installed</string>
+    <string name="diag_wifi_note">Shizuku needs Wireless debugging, which only works on Wi-Fi networks you allowed once.</string>
+    <string name="settings_sync_log">Sync log</string>
+    <string name="sync_log_empty">No syncs yet</string>
+    <string name="settings_licenses">Pixel font Pixelify Sans (SIL OFL) · icons Pixelarticons (MIT) · app icon and design are original. Not affiliated with ConcernedApe or Chucklefish.</string>
     <string-array name="seasons">
         <item>Spring</item>
         <item>Summer</item>

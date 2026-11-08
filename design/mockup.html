@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farm Sync mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&family=Roboto:wght@400;500&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,0,0&display=swap" rel="stylesheet">
+<style>
+  :root { --page: #e9eef0; }
+  body { margin: 0; padding: 32px 16px; background: var(--page); font-family: Roboto, system-ui, sans-serif; color: #1C2B33; }
+  h1 { font-family: Nunito, sans-serif; font-weight: 800; text-align: center; margin: 0 0 4px; }
+  .sub { text-align: center; color: #4A5E66; margin: 0 0 28px; font-size: 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 28px; justify-content: center; align-items: flex-start; }
+  .cap { text-align: center; font-size: 13px; color: #4A5E66; margin-top: 10px; }
+  .phone { width: 360px; height: 760px; border-radius: 36px; border: 10px solid #22262b; overflow: hidden; position: relative; display: flex; flex-direction: column; }
+  .ms { font-family: 'Material Symbols Rounded'; font-size: 24px; line-height: 1; vertical-align: middle; }
+
+  .light { --bg:#EEF7FA; --card:#FFFFFF; --ink:#1C2B33; --ink2:#4A5E66; --meadow:#1F7A33; --onMeadow:#FFFFFF; --meadowBg:#DDF2E0; --harvest:#F4C04A; --bark:#7A4B26; --line:#DCE8EC;
+           --spring:#CDEFC4; --summer:#FCE7A6; --fall:#F6C9A0; --winter:#D3E6F7; }
+  .dark  { --bg:#0F0D2A; --card:#1B2140; --ink:#E8F1F4; --ink2:#A9B8C4; --meadow:#7BD88A; --onMeadow:#0F0D2A; --meadowBg:#1F3B32; --harvest:#F4C04A; --bark:#D9A77A; --line:#2A3157;
+           --spring:#2E4A2E; --summer:#4A3F1C; --fall:#4A2F1E; --winter:#22344A; }
+  .dark .tile { color: #E8F1F4; }
+
+  .screen { background: var(--bg); color: var(--ink); flex: 1; display: flex; flex-direction: column; position: relative; }
+  .status { height: 28px; display: flex; justify-content: space-between; padding: 6px 20px 0; font-size: 12px; color: var(--ink2); }
+  .appbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px 4px 16px; }
+  .appbar .title { font-family: Nunito, sans-serif; font-weight: 800; font-size: 26px; flex: 1; }
+  .iconbtn { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 24px; color: var(--ink); }
+  .logo { width: 32px; height: 32px; border-radius: 9px; overflow: hidden; flex: none; }
+  .content { padding: 4px 16px 16px; overflow: hidden; flex: 1; }
+
+  .pill { display: flex; align-items: center; gap: 10px; background: var(--meadowBg); color: var(--ink); border-radius: 16px; padding: 12px 14px; font-size: 15px; margin: 6px 0 18px; }
+  .pill .ms { color: var(--meadow); }
+  .pill small { color: var(--ink2); font-size: 13px; display: block; }
+  .section { font-family: Nunito, sans-serif; font-weight: 800; font-size: 17px; margin: 6px 4px 10px; }
+  .card { background: var(--card); border-radius: 20px; padding: 14px; display: flex; gap: 14px; align-items: center; margin-bottom: 12px; border: 1px solid var(--line); }
+  .tile { width: 64px; height: 72px; border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #1C2B33; flex: none; }
+  .tile b { font-family: Nunito, sans-serif; font-weight: 800; font-size: 28px; line-height: 1; }
+  .tile span { font-size: 12px; margin-top: 3px; }
+  .tile i { font-style: normal; font-size: 11px; opacity: .85; }
+  .meta { flex: 1; min-width: 0; }
+  .meta .name { font-family: Nunito, sans-serif; font-weight: 800; font-size: 19px; }
+  .meta .who { font-size: 14px; color: var(--ink2); margin: 2px 0 6px; }
+  .state { font-size: 13px; display: inline-flex; align-items: center; gap: 4px; color: var(--meadow); font-weight: 500; }
+  .state .ms { font-size: 18px; }
+  .state.up { color: var(--ink2); }
+  .chev { color: var(--ink2); }
+
+  .offer { background: transparent; border: 1.5px dashed var(--line); }
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px; border-radius: 20px; font-size: 14px; font-weight: 500; }
+  .btn.tonal { background: var(--meadowBg); color: var(--ink); }
+
+  .hero { display: flex; gap: 16px; align-items: center; margin: 6px 0 16px; }
+  .hero .tile { width: 92px; height: 104px; border-radius: 20px; }
+  .hero .tile b { font-size: 40px; }
+  .hero .name { font-family: Nunito, sans-serif; font-weight: 800; font-size: 26px; }
+  .hero .who { color: var(--ink2); font-size: 15px; margin-top: 2px; }
+  .sync { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 14px 16px; margin-bottom: 18px; }
+  .sync .top { display: flex; align-items: center; justify-content: space-between; font-size: 16px; font-weight: 500; }
+  .switch { width: 52px; height: 32px; border-radius: 16px; background: var(--meadow); position: relative; }
+  .switch::after { content: ''; position: absolute; right: 4px; top: 4px; width: 24px; height: 24px; border-radius: 12px; background: var(--onMeadow); }
+  .sync .st { margin-top: 6px; }
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
+  .li { display: flex; align-items: center; gap: 14px; padding: 12px 8px 12px 16px; border-bottom: 1px solid var(--line); }
+  .li:last-child { border-bottom: 0; }
+  .li .ms.o { color: var(--bark); }
+  .li .t { flex: 1; } .li .t div { font-size: 15px; } .li .t small { color: var(--ink2); font-size: 13px; }
+  .disclose { display: flex; align-items: center; gap: 8px; color: var(--ink2); font-size: 15px; padding: 14px 4px; }
+  .fab { position: absolute; right: 16px; bottom: 20px; display: flex; align-items: center; gap: 8px; background: var(--meadow); color: var(--onMeadow); height: 56px; padding: 0 20px; border-radius: 18px; font-size: 15px; font-weight: 500; }
+</style>
+</head>
+<body>
+<h1>Farm Sync · "Valley sky"</h1>
+<p class="sub">Propuesta de diseño, sin recursos del juego, con colores propios inspirados en el ambiente del wiki</p>
+
+<div class="row">
+  <!-- 1: list, light -->
+  <div>
+    <div class="phone light"><div class="screen">
+      <div class="status"><span>16:14</span><span>Wi-Fi · 82 %</span></div>
+      <div class="appbar">
+        <svg class="logo" viewBox="0 0 108 108"><rect width="108" height="108" fill="#CDEFF7"/><path d="M0 80 C 22 66, 44 70, 60 78 C 76 86, 94 76, 108 70 L108 108 L0 108 Z" fill="#9BD67F"/><path d="M30 46 A 25 25 0 0 1 74 36" fill="none" stroke="#E8A92C" stroke-width="6" stroke-linecap="round"/><path d="M68 28 L80 36 L68 43 Z" fill="#E8A92C"/><path d="M78 62 A 25 25 0 0 1 34 72" fill="none" stroke="#E8A92C" stroke-width="6" stroke-linecap="round"/><path d="M40 80 L28 72 L40 65 Z" fill="#E8A92C"/><ellipse cx="54" cy="70" rx="15" ry="6" fill="#8A5A33"/><path d="M54 68 L54 52" stroke="#2F7D32" stroke-width="5" stroke-linecap="round"/><path d="M54 56 C 43 57, 36 50, 37 40 C 47 40, 54 46, 54 56 Z" fill="#3E9B4A"/><path d="M54 52 C 64 52, 72 45, 71 34 C 60 34, 54 41, 54 52 Z" fill="#69C060"/></svg>
+        <div class="title">Farm Sync</div>
+        <div class="iconbtn"><span class="ms">sync</span></div>
+        <div class="iconbtn"><span class="ms">more_vert</span></div>
+      </div>
+      <div class="content">
+        <div class="pill"><span class="ms">check_circle</span><div>Todo sincronizado<small>hace 2 min · Google Drive</small></div></div>
+        <div class="section">Tus granjas</div>
+        <div class="card">
+          <div class="tile" style="background:var(--summer)"><b>24</b><span>verano</span><i>año 1</i></div>
+          <div class="meta"><div class="name">La Maria</div><div class="who">Emma · 13 h 47 min</div><span class="state"><span class="ms">cloud_done</span>Sincronizada</span></div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+        <div class="card">
+          <div class="tile" style="background:var(--spring)"><b>19</b><span>primavera</span><i>año 1</i></div>
+          <div class="meta"><div class="name">Certeza</div><div class="who">Mia · 4 h 15 min</div><span class="state"><span class="ms">cloud_upload</span>Subida hace 1 min</span></div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+        <div class="section" style="margin-top:18px">En Google Drive</div>
+        <div class="card offer">
+          <div class="tile" style="background:var(--fall)"><b>3</b><span>otoño</span><i>año 2</i></div>
+          <div class="meta"><div class="name">Pradera</div><div class="who">De la tablet · ayer</div><span class="btn tonal"><span class="ms" style="font-size:18px">download</span>Descargar</span></div>
+        </div>
+      </div>
+    </div></div>
+    <div class="cap">Lista · claro</div>
+  </div>
+
+  <!-- 2: detail, light -->
+  <div>
+    <div class="phone light"><div class="screen">
+      <div class="status"><span>16:14</span><span>Wi-Fi · 82 %</span></div>
+      <div class="appbar">
+        <div class="iconbtn"><span class="ms">arrow_back</span></div>
+        <div class="title" style="font-size:22px">La Maria</div>
+        <div class="iconbtn"><span class="ms">more_vert</span></div>
+      </div>
+      <div class="content">
+        <div class="hero">
+          <div class="tile" style="background:var(--summer)"><b>24</b><span>verano</span><i>año 1</i></div>
+          <div><div class="name">La Maria</div><div class="who">Emma</div><div class="who">13 h 47 min jugadas</div></div>
+        </div>
+        <div class="sync">
+          <div class="top"><span>Sincronizar con Drive</span><div class="switch" aria-label="activado"></div></div>
+          <div class="st"><span class="state"><span class="ms">cloud_done</span>Al día · hoy 16:12</span></div>
+        </div>
+        <div class="section">Copias de seguridad</div>
+        <div class="list">
+          <div class="li"><span class="ms o">schedule</span><div class="t"><div>Hoy, 16:12</div><small>24 de verano · automática</small></div><span class="ms chev">more_vert</span></div>
+          <div class="li"><span class="ms o">cloud_download</span><div class="t"><div>Hoy, 15:56</div><small>23 de verano · antes de descargar</small></div><span class="ms chev">more_vert</span></div>
+          <div class="li"><span class="ms o">back_hand</span><div class="t"><div>Hoy, 13:58</div><small>23 de verano · manual</small></div><span class="ms" style="color:var(--harvest)">keep</span><span class="ms chev">more_vert</span></div>
+        </div>
+        <div class="disclose"><span class="ms">expand_more</span>Detalles técnicos</div>
+      </div>
+      <div class="fab"><span class="ms">add</span>Crear copia</div>
+    </div></div>
+    <div class="cap">Detalle · claro</div>
+  </div>
+
+  <!-- 3: list, dark -->
+  <div>
+    <div class="phone dark"><div class="screen">
+      <div class="status"><span>22:40</span><span>Wi-Fi · 41 %</span></div>
+      <div class="appbar">
+        <svg class="logo" viewBox="0 0 108 108"><rect width="108" height="108" fill="#CDEFF7"/><path d="M0 80 C 22 66, 44 70, 60 78 C 76 86, 94 76, 108 70 L108 108 L0 108 Z" fill="#9BD67F"/><path d="M30 46 A 25 25 0 0 1 74 36" fill="none" stroke="#E8A92C" stroke-width="6" stroke-linecap="round"/><path d="M68 28 L80 36 L68 43 Z" fill="#E8A92C"/><path d="M78 62 A 25 25 0 0 1 34 72" fill="none" stroke="#E8A92C" stroke-width="6" stroke-linecap="round"/><path d="M40 80 L28 72 L40 65 Z" fill="#E8A92C"/><ellipse cx="54" cy="70" rx="15" ry="6" fill="#8A5A33"/><path d="M54 68 L54 52" stroke="#2F7D32" stroke-width="5" stroke-linecap="round"/><path d="M54 56 C 43 57, 36 50, 37 40 C 47 40, 54 46, 54 56 Z" fill="#3E9B4A"/><path d="M54 52 C 64 52, 72 45, 71 34 C 60 34, 54 41, 54 52 Z" fill="#69C060"/></svg>
+        <div class="title">Farm Sync</div>
+        <div class="iconbtn"><span class="ms">sync</span></div>
+        <div class="iconbtn"><span class="ms">more_vert</span></div>
+      </div>
+      <div class="content">
+        <div class="pill" style="background:#3B3216"><span class="ms" style="color:var(--harvest)">pause_circle</span><div>Cierra Stardew para descargar<small>La Maria tiene un día nuevo en Drive</small></div></div>
+        <div class="section">Tus granjas</div>
+        <div class="card">
+          <div class="tile" style="background:var(--summer)"><b>23</b><span>verano</span><i>año 1</i></div>
+          <div class="meta"><div class="name">La Maria</div><div class="who">Emma · 13 h 25 min</div><span class="state" style="color:var(--harvest)"><span class="ms">schedule</span>Día nuevo esperando</span></div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+        <div class="card">
+          <div class="tile" style="background:var(--spring)"><b>19</b><span>primavera</span><i>año 1</i></div>
+          <div class="meta"><div class="name">Certeza</div><div class="who">Mia · 4 h 15 min</div><span class="state"><span class="ms">cloud_done</span>Sincronizada</span></div>
+          <span class="ms chev">chevron_right</span>
+        </div>
+      </div>
+    </div></div>
+    <div class="cap">Lista · oscuro, con un aviso en su sitio</div>
+  </div>
+
+  <!-- 4: icon -->
+  <div>
+    <div style="width:220px; display:flex; flex-direction:column; gap:16px; align-items:center; padding-top:40px">
+      <svg width="160" height="160" viewBox="0 0 108 108" style="border-radius:36px"><rect width="108" height="108" fill="#CDEFF7"/><path d="M0 80 C 22 66, 44 70, 60 78 C 76 86, 94 76, 108 70 L108 108 L0 108 Z" fill="#9BD67F"/><path d="M0 92 C 28 84, 58 90, 108 84 L108 108 L0 108 Z" fill="#6FBE5C"/><path d="M30 46 A 25 25 0 0 1 74 36" fill="none" stroke="#E8A92C" stroke-width="6" stroke-linecap="round"/><path d="M68 28 L80 36 L68 43 Z" fill="#E8A92C"/><path d="M78 62 A 25 25 0 0 1 34 72" fill="none" stroke="#E8A92C" stroke-width="6" stroke-linecap="round"/><path d="M40 80 L28 72 L40 65 Z" fill="#E8A92C"/><ellipse cx="54" cy="70" rx="15" ry="6" fill="#8A5A33"/><path d="M54 68 L54 52" stroke="#2F7D32" stroke-width="5" stroke-linecap="round"/><path d="M54 56 C 43 57, 36 50, 37 40 C 47 40, 54 46, 54 56 Z" fill="#3E9B4A"/><path d="M54 52 C 64 52, 72 45, 71 34 C 60 34, 54 41, 54 52 Z" fill="#69C060"/></svg>
+      <div style="display:flex; gap:14px">
+        <svg width="64" height="64" viewBox="0 0 108 108" style="border-radius:50%"><rect width="108" height="108" fill="#CDEFF7"/><path d="M0 80 C 22 66, 44 70, 60 78 C 76 86, 94 76, 108 70 L108 108 L0 108 Z" fill="#9BD67F"/><path d="M30 46 A 25 25 0 0 1 74 36" fill="none" stroke="#E8A92C" stroke-width="6" stroke-linecap="round"/><path d="M68 28 L80 36 L68 43 Z" fill="#E8A92C"/><path d="M78 62 A 25 25 0 0 1 34 72" fill="none" stroke="#E8A92C" stroke-width="6" stroke-linecap="round"/><path d="M40 80 L28 72 L40 65 Z" fill="#E8A92C"/><ellipse cx="54" cy="70" rx="15" ry="6" fill="#8A5A33"/><path d="M54 68 L54 52" stroke="#2F7D32" stroke-width="5" stroke-linecap="round"/><path d="M54 56 C 43 57, 36 50, 37 40 C 47 40, 54 46, 54 56 Z" fill="#3E9B4A"/><path d="M54 52 C 64 52, 72 45, 71 34 C 60 34, 54 41, 54 52 Z" fill="#69C060"/></svg>
+        <svg width="64" height="64" viewBox="0 0 108 108" style="border-radius:50%"><rect width="108" height="108" fill="#2B3A2E"/><path d="M30 46 A 25 25 0 0 1 74 36" fill="none" stroke="#CDE8C4" stroke-width="6" stroke-linecap="round"/><path d="M68 28 L80 36 L68 43 Z" fill="#CDE8C4"/><path d="M78 62 A 25 25 0 0 1 34 72" fill="none" stroke="#CDE8C4" stroke-width="6" stroke-linecap="round"/><path d="M40 80 L28 72 L40 65 Z" fill="#CDE8C4"/><ellipse cx="54" cy="70" rx="15" ry="6" fill="#CDE8C4"/><path d="M54 68 L54 52" stroke="#CDE8C4" stroke-width="5" stroke-linecap="round"/><path d="M54 56 C 43 57, 36 50, 37 40 C 47 40, 54 46, 54 56 Z" fill="#CDE8C4"/><path d="M54 52 C 64 52, 72 45, 71 34 C 60 34, 54 41, 54 52 Z" fill="#CDE8C4"/></svg>
+      </div>
+      <div class="cap">Icono propio · redondo · monocromo (iconos temáticos)</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

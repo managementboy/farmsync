@@ -67,6 +67,8 @@ data class UiState(
     val message: Message? = null,
     val error: String? = null,
     val sync: SyncUi = SyncUi(),
+    /** Settings / diagnostics screen open. */
+    val showSettings: Boolean = false,
 )
 
 data class SyncUi(
@@ -329,6 +331,23 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun shareHandled() = _state.update { it.copy(shareFile = null) }
+
+    /** Shares one snapshot zip as it was stored (read-only on saves). */
+    fun exportSnapshot(meta: SnapshotMeta) {
+        viewModelScope.launch {
+            val file = withContext(Dispatchers.IO) {
+                val dir = File(cacheDir, "exports").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+                File(dir, "${meta.farm}_${meta.id}.zip").also { store.zipFile(meta).copyTo(it, overwrite = true) }
+            }
+            _state.update { it.copy(shareFile = file) }
+        }
+    }
+
+    fun openSettings(open: Boolean) = _state.update { it.copy(showSettings = open) }
+
+    /** Newest sync results first, for the diagnostics screen. */
+    fun syncLogEntries(): List<app.farmsync.companion.sync.SyncLog.Entry> =
+        SyncRunner.log(getApplication()).entries().asReversed().take(30)
 
     /** Copies the picked zip into the cache and validates it. Nothing is written to saves here. */
     fun prepareImport(uri: Uri) = runBusy { _ ->

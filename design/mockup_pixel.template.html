@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farm Sync pixel mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; padding:32px 16px; background:#e9eef0; font-family:Roboto, system-ui, sans-serif; color:#1C2B33; }
+  h1 { font-family:'Pixelify Sans', sans-serif; font-weight:700; text-align:center; margin:0 0 4px; font-size:30px; }
+  .sub { text-align:center; color:#4A5E66; margin:0 0 28px; font-size:14px; }
+  .row { display:flex; flex-wrap:wrap; gap:28px; justify-content:center; align-items:flex-start; }
+  .cap { text-align:center; font-size:13px; color:#4A5E66; margin-top:10px; }
+  .phone { width:360px; height:760px; border-radius:36px; border:10px solid #22262b; overflow:hidden; display:flex; flex-direction:column; }
+  .px-font { font-family:'Pixelify Sans', sans-serif; }
+
+  .light { --bg:#EEF7FA; --card:#FFFDF6; --ink:#1C2B33; --ink2:#4A5E66; --meadow:#1F7A33; --onMeadow:#FFFFFF; --meadowBg:#DDF2E0;
+           --frame:#8A5A33; --shade:#E8DCC4; --hi:#FFFFFF; --harvest:#F4C04A; --bark:#7A4B26;
+           --spring:#CDEFC4; --summer:#FCE7A6; --fall:#F6C9A0; --winter:#D3E6F7; }
+  .dark  { --bg:#0F0D2A; --card:#1B2140; --ink:#E8F1F4; --ink2:#A9B8C4; --meadow:#7BD88A; --onMeadow:#0F0D2A; --meadowBg:#1F3B32;
+           --frame:#5E4A7A; --shade:#121733; --hi:#2A3157; --harvest:#F4C04A; --bark:#D9A77A;
+           --spring:#2E4A2E; --summer:#4A3F1C; --fall:#4A2F1E; --winter:#22344A; }
+
+  .px { --s:4px; border:var(--s) solid var(--frame); box-shadow: inset 0 calc(-1 * var(--s)) 0 var(--shade), inset 0 var(--s) 0 var(--hi);
+        clip-path: polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px)); }
+
+  .pi { display:inline-block; width:24px; height:24px; background:currentColor; flex:none;
+        -webkit-mask:var(--i) center/contain no-repeat; mask:var(--i) center/contain no-repeat; }
+  .pi.s { width:18px; height:18px; }
+
+  .screen { background:var(--bg); color:var(--ink); flex:1; display:flex; flex-direction:column; position:relative; }
+  .status { height:28px; display:flex; justify-content:space-between; padding:6px 20px 0; font-size:12px; color:var(--ink2); }
+  .appbar { display:flex; align-items:center; gap:10px; padding:8px 8px 4px 16px; }
+  .appbar .title { font-family:'Pixelify Sans', sans-serif; font-weight:700; font-size:28px; flex:1; }
+  .iconbtn { width:48px; height:48px; display:grid; place-items:center; color:var(--ink); }
+  .logo { width:36px; height:36px; flex:none; image-rendering:pixelated; }
+  .content { padding:4px 16px 16px; overflow:hidden; flex:1; }
+
+  .pill { display:flex; align-items:center; gap:12px; background:var(--meadowBg); --frame:var(--meadow); padding:10px 12px; margin:6px 0 18px; font-size:15px; }
+  .pill .pi { color:var(--meadow); }
+  .pill small { color:var(--ink2); font-size:13px; display:block; }
+  .section { font-family:'Pixelify Sans', sans-serif; font-weight:700; font-size:19px; margin:8px 2px 10px; }
+  .card { background:var(--card); padding:12px; display:flex; gap:12px; align-items:center; margin-bottom:12px; }
+  .tile { width:64px; height:76px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#1C2B33; flex:none; --frame:#5E3A1E; --s:3px; }
+  .dark .tile { color:#E8F1F4; --frame:#8A6A4A; }
+  .tile b { font-family:'Pixelify Sans', sans-serif; font-weight:700; font-size:30px; line-height:1; }
+  .tile span { font-size:12px; margin-top:4px; }
+  .tile i { font-style:normal; font-size:11px; }
+  .meta { flex:1; min-width:0; }
+  .meta .name { font-family:'Pixelify Sans', sans-serif; font-weight:700; font-size:21px; }
+  .meta .who { font-size:14px; color:var(--ink2); margin:2px 0 6px; }
+  .state { font-size:13px; display:inline-flex; align-items:center; gap:5px; color:var(--meadow); font-weight:500; }
+  .state.wait { color:var(--ink2); }
+  .chev { color:var(--ink2); }
+  .offer { --frame:#B9C9CF; background:transparent; }
+  .dark .offer { --frame:#3A4270; }
+  .btn { display:inline-flex; align-items:center; gap:6px; height:40px; padding:0 14px; font-size:14px; font-weight:500; background:var(--meadowBg); --frame:var(--meadow); --s:3px; }
+
+  .hero { display:flex; gap:16px; align-items:center; margin:6px 0 16px; }
+  .hero .tile { width:96px; height:108px; }
+  .hero .tile b { font-size:44px; }
+  .hero .name { font-family:'Pixelify Sans', sans-serif; font-weight:700; font-size:28px; }
+  .hero .who { color:var(--ink2); font-size:15px; margin-top:2px; }
+  .sync { background:var(--card); padding:12px 14px; margin-bottom:18px; }
+  .sync .top { display:flex; align-items:center; justify-content:space-between; font-size:16px; font-weight:500; }
+  .switch { width:56px; height:32px; background:var(--meadow); position:relative; --frame:#14521f; --s:3px; }
+  .dark .switch { --frame:#3E8A4B; }
+  .switch::after { content:''; position:absolute; right:3px; top:3px; width:20px; height:20px; background:var(--onMeadow); }
+  .sync .st { margin-top:8px; }
+  .list { background:var(--card); }
+  .li { display:flex; align-items:center; gap:12px; padding:11px 6px 11px 12px; border-bottom:3px dotted var(--shade); }
+  .li:last-child { border-bottom:0; }
+  .li .o { color:var(--bark); }
+  .li .t { flex:1; } .li .t div { font-size:15px; } .li .t small { color:var(--ink2); font-size:13px; }
+  .disclose { display:flex; align-items:center; gap:8px; color:var(--ink2); font-size:15px; padding:14px 2px; }
+  .fab { position:absolute; right:16px; bottom:20px; display:flex; align-items:center; gap:8px; background:var(--meadow); color:var(--onMeadow); height:56px; padding:0 18px; font-size:15px; font-weight:500; --frame:#14521f; }
+  .dark .fab { --frame:#3E8A4B; }
+  .hill { height:28px; flex:none; image-rendering:pixelated;
+          background: linear-gradient(var(--hillA),var(--hillA)) 0 12px/100% 16px no-repeat,
+                      repeating-linear-gradient(90deg, var(--hillB) 0 24px, transparent 24px 48px) 0 4px/100% 8px no-repeat; }
+  .light .hill { --hillA:#A6DC88; --hillB:#A6DC88; }
+  .dark  .hill { --hillA:#1F3B32; --hillB:#1F3B32; }
+</style>
+</head>
+<body>
+<h1>Farm Sync · pixel</h1>
+<p class="sub">Arte de píxeles propio · iconos Pixelarticons (MIT) · fuente Pixelify Sans (OFL) · ningún recurso del juego</p>
+<div class="row">
+
+  <div>
+    <div class="phone light"><div class="screen">
+      <div class="status"><span>16:14</span><span>Wi-Fi · 82 %</span></div>
+      <div class="appbar"><img class="logo" src="__ICON__" alt=""><div class="title">Farm Sync</div>
+        <div class="iconbtn"><span class="pi" style="--i:url(__PI__/reload.svg)"></span></div>
+        <div class="iconbtn"><span class="pi" style="--i:url(__PI__/more-vertical.svg)"></span></div></div>
+      <div class="content">
+        <div class="pill px"><span class="pi" style="--i:url(__PI__/check.svg)"></span><div>Todo sincronizado<small>hace 2 min · Google Drive</small></div></div>
+        <div class="section">Tus granjas</div>
+        <div class="card px">
+          <div class="tile px" style="background:var(--summer)"><b>24</b><span>verano</span><i>año 1</i></div>
+          <div class="meta"><div class="name">La Maria</div><div class="who">Emma · 13 h 47 min</div><span class="state"><span class="pi s" style="--i:url(__PI__/cloud.svg)"></span>Sincronizada</span></div>
+          <span class="pi chev" style="--i:url(__PI__/chevron-right.svg)"></span>
+        </div>
+        <div class="card px">
+          <div class="tile px" style="background:var(--spring)"><b>19</b><span>primavera</span><i>año 1</i></div>
+          <div class="meta"><div class="name">Certeza</div><div class="who">Mia · 4 h 15 min</div><span class="state"><span class="pi s" style="--i:url(__PI__/upload.svg)"></span>Subida hace 1 min</span></div>
+          <span class="pi chev" style="--i:url(__PI__/chevron-right.svg)"></span>
+        </div>
+        <div class="section" style="margin-top:16px">En Google Drive</div>
+        <div class="card px offer">
+          <div class="tile px" style="background:var(--fall)"><b>3</b><span>otoño</span><i>año 2</i></div>
+          <div class="meta"><div class="name">Pradera</div><div class="who">De la tablet · ayer</div><span class="btn px"><span class="pi s" style="--i:url(__PI__/download.svg)"></span>Descargar</span></div>
+        </div>
+      </div>
+      <div class="hill"></div>
+    </div></div>
+    <div class="cap">Lista · claro</div>
+  </div>
+
+  <div>
+    <div class="phone light"><div class="screen">
+      <div class="status"><span>16:14</span><span>Wi-Fi · 82 %</span></div>
+      <div class="appbar"><div class="iconbtn"><span class="pi" style="--i:url(__PI__/arrow-left.svg)"></span></div>
+        <div class="title" style="font-size:24px">La Maria</div>
+        <div class="iconbtn"><span class="pi" style="--i:url(__PI__/more-vertical.svg)"></span></div></div>
+      <div class="content">
+        <div class="hero"><div class="tile px" style="background:var(--summer)"><b>24</b><span>verano</span><i>año 1</i></div>
+          <div><div class="name">La Maria</div><div class="who">Emma</div><div class="who">13 h 47 min jugadas</div></div></div>
+        <div class="sync px"><div class="top"><span>Sincronizar con Drive</span><div class="switch px" role="switch" aria-checked="true"></div></div>
+          <div class="st"><span class="state"><span class="pi s" style="--i:url(__PI__/cloud.svg)"></span>Al día · hoy 16:12</span></div></div>
+        <div class="section">Copias de seguridad</div>
+        <div class="list px">
+          <div class="li"><span class="pi o" style="--i:url(__PI__/clock.svg)"></span><div class="t"><div>Hoy, 16:12</div><small>24 de verano · automática</small></div><span class="pi chev" style="--i:url(__PI__/more-vertical.svg)"></span></div>
+          <div class="li"><span class="pi o" style="--i:url(__PI__/download.svg)"></span><div class="t"><div>Hoy, 15:56</div><small>23 de verano · antes de descargar</small></div><span class="pi chev" style="--i:url(__PI__/more-vertical.svg)"></span></div>
+          <div class="li"><span class="pi o" style="--i:url(__PI__/human.svg)"></span><div class="t"><div>Hoy, 13:58</div><small>23 de verano · manual</small></div><span class="pi" style="color:var(--bark); --i:url(__PI__/bookmark.svg)"></span><span class="pi chev" style="--i:url(__PI__/more-vertical.svg)"></span></div>
+        </div>
+        <div class="disclose"><span class="pi" style="--i:url(__PI__/chevron-right.svg)"></span>Detalles técnicos</div>
+      </div>
+      <div class="fab px"><span class="pi" style="--i:url(__PI__/plus.svg)"></span>Crear copia</div>
+    </div></div>
+    <div class="cap">Detalle · claro</div>
+  </div>
+
+  <div>
+    <div class="phone dark"><div class="screen">
+      <div class="status"><span>22:40</span><span>Wi-Fi · 41 %</span></div>
+      <div class="appbar"><img class="logo" src="__ICON__" alt=""><div class="title">Farm Sync</div>
+        <div class="iconbtn"><span class="pi" style="--i:url(__PI__/reload.svg)"></span></div>
+        <div class="iconbtn"><span class="pi" style="--i:url(__PI__/more-vertical.svg)"></span></div></div>
+      <div class="content">
+        <div class="pill px" style="background:#3B3216; --frame:var(--harvest)"><span class="pi" style="color:var(--harvest); --i:url(__PI__/pause.svg)"></span><div>Cierra Stardew para descargar<small>La Maria tiene un día nuevo en Drive</small></div></div>
+        <div class="section">Tus granjas</div>
+        <div class="card px">
+          <div class="tile px" style="background:var(--summer)"><b>23</b><span>verano</span><i>año 1</i></div>
+          <div class="meta"><div class="name">La Maria</div><div class="who">Emma · 13 h 25 min</div><span class="state" style="color:var(--harvest)"><span class="pi s" style="--i:url(__PI__/clock.svg)"></span>Día nuevo esperando</span></div>
+          <span class="pi chev" style="--i:url(__PI__/chevron-right.svg)"></span>
+        </div>
+        <div class="card px">
+          <div class="tile px" style="background:var(--spring)"><b>19</b><span>primavera</span><i>año 1</i></div>
+          <div class="meta"><div class="name">Certeza</div><div class="who">Mia · 4 h 15 min</div><span class="state"><span class="pi s" style="--i:url(__PI__/cloud.svg)"></span>Sincronizada</span></div>
+          <span class="pi chev" style="--i:url(__PI__/chevron-right.svg)"></span>
+        </div>
+      </div>
+      <div class="hill"></div>
+    </div></div>
+    <div class="cap">Lista · oscuro, aviso en su sitio</div>
+  </div>
+
+  <div style="width:240px; display:flex; flex-direction:column; align-items:center; gap:16px; padding-top:40px">
+    <img src="__ICON__" width="176" height="176" style="image-rendering:pixelated; border-radius:40px" alt="Icono de Farm Sync">
+    <div style="display:flex; gap:14px">
+      <img src="__ICON__" width="72" height="72" style="image-rendering:pixelated; border-radius:50%" alt="">
+      <img src="__MONO__" width="72" height="72" style="image-rendering:pixelated; border-radius:50%" alt="">
+    </div>
+    <div class="cap">Icono de píxeles propio<br>normal · redondo · monocromo</div>
+  </div>
+</div>
+</body>
+</html>

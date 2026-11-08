@@ -6,11 +6,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.AlertDialog
-import app.farmsync.companion.sync.FarmSyncResult
-import androidx.core.content.FileProvider
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,37 +19,56 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.farmsync.companion.R
 import app.farmsync.companion.ops.ImportException
 import app.farmsync.companion.ops.OpBlocked
-import app.farmsync.companion.saves.Farm
+import app.farmsync.companion.saves.Farm as SaveFarm
 import app.farmsync.companion.shizuku.ShizukuStatus
 import app.farmsync.companion.store.SnapshotMeta
+import app.farmsync.companion.sync.FarmSyncResult
+import app.farmsync.companion.sync.Outcome
+import app.farmsync.companion.ui.components.AppMark
+import app.farmsync.companion.ui.components.ButtonKind
+import app.farmsync.companion.ui.components.DayTile
+import app.farmsync.companion.ui.components.PixelButton
+import app.farmsync.companion.ui.components.PixelHill
+import app.farmsync.companion.ui.components.PixelIcon
+import app.farmsync.companion.ui.components.StatusLine
+import app.farmsync.companion.ui.components.card
+import app.farmsync.companion.ui.components.pixelFrame
+import app.farmsync.companion.ui.theme.Farm
+import app.farmsync.companion.ui.theme.FarmType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,15 +82,12 @@ fun FarmListScreen(vm: FarmListViewModel) {
             vm.dismissMessage()
         }
     }
-
     val context = LocalContext.current
     LaunchedEffect(state.shareFile) {
         state.shareFile?.let { file ->
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.exports", file)
-            val send = Intent(Intent.ACTION_SEND)
-                .setType("application/zip")
-                .putExtra(Intent.EXTRA_STREAM, uri)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val send = Intent(Intent.ACTION_SEND).setType("application/zip")
+                .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             context.startActivity(Intent.createChooser(send, file.name))
             vm.shareHandled()
         }
@@ -103,6 +117,11 @@ fun FarmListScreen(vm: FarmListViewModel) {
         ImportDialog(preview, state.gameRunning, onConfirm = vm::confirmImport, onDismiss = vm::cancelImport)
     }
 
+    if (state.showSettings) {
+        BackHandler { vm.openSettings(false) }
+        SettingsScreen(state, vm, snackbar)
+        return
+    }
     val selected = state.selectedFarm
     if (selected != null) {
         BackHandler { vm.select(null) }
@@ -118,6 +137,7 @@ fun FarmListScreen(vm: FarmListViewModel) {
             onPin = vm::setPinned,
             onRestore = vm::restore,
             onExport = { vm.export(selected) },
+            onShareSnapshot = vm::exportSnapshot,
             driveLinked = state.sync.email != null,
             syncEnabled = selected !in state.sync.disabled,
             syncResult = state.sync.results[selected],
@@ -127,25 +147,53 @@ fun FarmListScreen(vm: FarmListViewModel) {
         return
     }
 
+    val c = Farm.colors
     Scaffold(
+        containerColor = c.sky,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.sky),
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AppMark()
+                        Spacer(Modifier.width(10.dp))
+                        Text(stringResource(R.string.app_name), style = FarmType.appTitle, color = c.ink)
+                    }
+                },
                 actions = {
                     if (state.shizuku == ShizukuStatus.READY) {
-                        TextButton(
-                            onClick = { pickZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
-                            enabled = !state.busy,
-                        ) { Text(stringResource(R.string.import_button)) }
-                        if (state.farms.isNotEmpty()) {
-                            TextButton(onClick = { vm.snapshotNow(null) }, enabled = !state.busy) {
-                                Text(stringResource(R.string.snapshot_all))
-                            }
+                        IconButton(onClick = { if (state.sync.email != null) vm.syncNow() else vm.refresh() }, enabled = !state.busy) {
+                            PixelIcon(R.drawable.pi_reload, stringResource(R.string.sync_now))
                         }
+                    }
+                    var menu by remember { mutableStateOf(false) }
+                    IconButton(onClick = { menu = true }) { PixelIcon(R.drawable.pi_more_vertical, stringResource(R.string.more_options)) }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        if (state.shizuku == ShizukuStatus.READY) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.import_button)) },
+                                leadingIcon = { PixelIcon(R.drawable.pi_download, null) },
+                                onClick = {
+                                    menu = false
+                                    pickZip.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.snapshot_all)) },
+                                leadingIcon = { PixelIcon(R.drawable.pi_save, null) },
+                                onClick = { menu = false; vm.snapshotNow(null) },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.settings_title)) },
+                            leadingIcon = { PixelIcon(R.drawable.pi_settings_cog, null) },
+                            onClick = { menu = false; vm.openSettings(true) },
+                        )
                     }
                 },
             )
         },
+        bottomBar = { PixelHill() },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         PullToRefreshBox(
@@ -154,38 +202,34 @@ fun FarmListScreen(vm: FarmListViewModel) {
             modifier = Modifier.padding(padding).fillMaxSize(),
         ) {
             LazyColumn(
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 if (state.busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-                item { StatusCard(state, vm) }
-                if (state.shizuku == ShizukuStatus.READY) item { SyncCard(state.sync, state.farms.count { it.folder !in state.sync.disabled }, state.busy, vm) }
-                state.error?.let { err ->
-                    item { Text(stringResource(R.string.error_prefix, err), color = MaterialTheme.colorScheme.error) }
-                }
-                if (state.shizuku == ShizukuStatus.READY && !state.loading && state.farms.isEmpty() && state.error == null) {
-                    item { Text(stringResource(R.string.no_farms)) }
-                }
+                item { StatusBanner(state, vm) }
+                if (state.farms.isNotEmpty()) item { SectionTitle(stringResource(R.string.your_farms)) }
                 items(state.farms, key = { it.folder }) { farm ->
-                    FarmCard(
-                        farm, state.snapshots[farm.folder].orEmpty(),
-                        syncLine = if (state.sync.email == null) null
-                        else syncStatusText(farm.folder !in state.sync.disabled, state.sync.results[farm.folder]),
+                    FarmRow(
+                        farm = farm,
+                        look = if (state.sync.email != null) syncLook(farm.folder !in state.sync.disabled, state.sync.results[farm.folder]) else null,
+                        lastSnapshot = state.snapshots[farm.folder]?.firstOrNull(),
+                        midday = farm.midday,
                     ) { vm.select(farm.folder) }
                 }
+                if (state.shizuku == ShizukuStatus.READY && !state.loading && state.farms.isEmpty() && state.error == null) {
+                    item { Text(stringResource(R.string.no_farms), color = c.ink2, modifier = Modifier.padding(8.dp)) }
+                }
                 if (state.sync.available.isNotEmpty()) {
-                    item { Text(stringResource(R.string.available_title), style = MaterialTheme.typography.titleSmall) }
+                    item { SectionTitle(stringResource(R.string.available_title)) }
                     items(state.sync.available, key = { "drive-${it.farm}" }) { r ->
-                        AvailableCard(r, state.busy) { vm.downloadFromVault(r.farm) }
+                        AvailableRow(r, state.busy) { vm.downloadFromVault(r.farm) }
                     }
                 }
                 if (state.archived.isNotEmpty()) {
-                    item {
-                        Text(stringResource(R.string.archived_title), style = MaterialTheme.typography.titleSmall)
-                    }
+                    item { SectionTitle(stringResource(R.string.archived_title)) }
                     items(state.archived, key = { "archived-$it" }) { folder ->
-                        ArchivedCard(folder, state.snapshots[folder].orEmpty()) { vm.select(folder) }
+                        ArchivedRow(folder, state.snapshots[folder].orEmpty()) { vm.select(folder) }
                     }
                 }
             }
@@ -194,7 +238,140 @@ fun FarmListScreen(vm: FarmListViewModel) {
 }
 
 @Composable
-private fun messageText(m: Message): String = when (m) {
+fun SectionTitle(text: String) {
+    Text(
+        text, style = FarmType.section, color = Farm.colors.ink,
+        modifier = Modifier.padding(top = 8.dp, start = 2.dp).semantics { heading() },
+    )
+}
+
+/** One place for the app's overall state; problems replace it, each with one action. */
+@Composable
+private fun StatusBanner(state: UiState, vm: FarmListViewModel) {
+    val c = Farm.colors
+    val context = LocalContext.current
+    val openDevSettings = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)) }
+    val results = state.sync.results.filterKeys { k -> state.farms.any { it.folder == k } }.values
+    val attention = results.count { it.outcome in setOf(Outcome.CONFLICT, Outcome.FAILED, Outcome.VAULT_CHANGED) }
+    val waitingGame = results.any { it.outcome == Outcome.BLOCKED_GAME_RUNNING }
+    when {
+        state.shizuku == ShizukuStatus.NOT_INSTALLED ->
+            Banner(R.drawable.pi_square_alert, stringResource(R.string.shizuku_not_installed), null, c.alertBg, c.alert)
+        state.shizuku == ShizukuStatus.NOT_RUNNING ->
+            Banner(R.drawable.pi_square_alert, stringResource(R.string.banner_shizuku_off), stringResource(R.string.banner_shizuku_off_hint),
+                c.harvestBg, c.harvest, stringResource(R.string.open_developer_options), openDevSettings)
+        state.shizuku == ShizukuStatus.NO_PERMISSION ->
+            Banner(R.drawable.pi_square_alert, stringResource(R.string.shizuku_no_permission), null,
+                c.harvestBg, c.harvest, stringResource(R.string.grant_permission), vm::requestShizukuPermission)
+        state.sync.email == null ->
+            Banner(R.drawable.pi_cloud, stringResource(R.string.drive_not_linked), stringResource(R.string.drive_not_linked_hint),
+                c.card, c.ink2, stringResource(R.string.drive_link), vm::linkDrive)
+        state.busy || state.loading ->
+            Banner(R.drawable.pi_reload, stringResource(R.string.banner_syncing), null, c.meadowBg, c.meadow)
+        attention > 0 ->
+            Banner(R.drawable.pi_square_alert, pluralStringResource(R.plurals.banner_attention, attention, attention),
+                stringResource(R.string.banner_attention_hint), c.alertBg, c.alert)
+        waitingGame || state.gameRunning ->
+            Banner(R.drawable.pi_pause, stringResource(R.string.banner_close_game), stringResource(R.string.banner_close_game_hint),
+                c.harvestBg, c.harvest)
+        else -> Banner(
+            R.drawable.pi_check, stringResource(R.string.banner_all_synced),
+            state.sync.lastSync?.let { stringResource(R.string.banner_last_sync, relative(it)) },
+            c.meadowBg, c.meadow,
+        )
+    }
+}
+
+@Composable
+private fun Banner(
+    icon: Int,
+    title: String,
+    subtitle: String?,
+    fill: androidx.compose.ui.graphics.Color,
+    accent: androidx.compose.ui.graphics.Color,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    val c = Farm.colors
+    Column(
+        Modifier.fillMaxWidth().pixelFrame(fill, accent, border = 3.dp).padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PixelIcon(icon, null, tint = accent)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(title, fontSize = 15.sp, color = c.ink)
+                subtitle?.let { Text(it, fontSize = 13.sp, color = c.ink2) }
+            }
+        }
+        if (action != null && onAction != null) {
+            PixelButton(action, onAction, kind = ButtonKind.FILLED)
+        }
+    }
+}
+
+@Composable
+private fun FarmRow(farm: SaveFarm, look: StatusLook?, lastSnapshot: SnapshotMeta?, midday: Boolean, onClick: () -> Unit) {
+    val c = Farm.colors
+    Row(
+        Modifier.fillMaxWidth().card().clickable(onClick = onClick).padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DayTile(farm.info)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(farm.info?.farmName ?: farm.folder, style = FarmType.farmName, color = c.ink)
+            farm.info?.let { Text("${it.farmer} · ${playTime(it)}", fontSize = 14.sp, color = c.ink2) }
+            Spacer(Modifier.padding(top = 4.dp))
+            when {
+                look != null -> StatusLine(look.icon, look.text, look.color)
+                lastSnapshot != null -> StatusLine(R.drawable.pi_save, stringResource(R.string.snapshot_of, whenText(lastSnapshot.createdAt)), c.ink2)
+            }
+            if (midday) StatusLine(R.drawable.pi_clock, stringResource(R.string.badge_midday), c.harvest)
+            if (!farm.isComplete) StatusLine(R.drawable.pi_square_alert, stringResource(R.string.farm_incomplete), c.alert)
+        }
+        PixelIcon(R.drawable.pi_chevron_right, null, tint = c.ink2)
+    }
+}
+
+@Composable
+private fun AvailableRow(r: FarmSyncResult, busy: Boolean, onDownload: () -> Unit) {
+    val c = Farm.colors
+    Row(
+        Modifier.fillMaxWidth().pixelFrame(c.sky, c.offerFrame).padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DayTile(r.remote?.info)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(r.remote?.info?.farmName ?: r.farm, style = FarmType.farmName, color = c.ink)
+            r.remote?.let { Text(stringResource(R.string.from_device, it.deviceName, relative(it.created)), fontSize = 14.sp, color = c.ink2) }
+            PixelButton(stringResource(R.string.download_to_device), onDownload, icon = R.drawable.pi_download, enabled = !busy)
+        }
+    }
+}
+
+@Composable
+private fun ArchivedRow(folder: String, snapshots: List<SnapshotMeta>, onClick: () -> Unit) {
+    val c = Farm.colors
+    val info = snapshots.firstOrNull()?.info
+    Row(
+        Modifier.fillMaxWidth().pixelFrame(c.sky, c.offerFrame).clickable(onClick = onClick).padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DayTile(info)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(info?.farmName ?: folder, style = FarmType.farmName, color = c.ink)
+            Text(stringResource(R.string.archived_hint_short), fontSize = 14.sp, color = c.ink2)
+        }
+        PixelIcon(R.drawable.pi_chevron_right, null, tint = c.ink2)
+    }
+}
+
+@Composable
+fun messageText(m: Message): String = when (m) {
     is Message.SnapshotsCreated -> pluralStringResource(R.plurals.snapshots_created, m.count, m.count)
     Message.NothingChanged -> stringResource(R.string.nothing_changed)
     is Message.Failed -> stringResource(R.string.error_prefix, m.detail)
@@ -229,7 +406,7 @@ private fun messageText(m: Message): String = when (m) {
     is Message.DriveLinked -> stringResource(if (m.newVault) R.string.drive_linked_new else R.string.drive_linked, m.email)
     Message.VaultMismatch -> stringResource(R.string.vault_mismatch)
     Message.ShizukuMissing -> stringResource(R.string.shizuku_not_running)
-    is Message.SyncDone -> stringResource(R.string.sync_done, m.uploaded, m.downloaded, m.resolved, m.attention)
+    is Message.SyncDone -> syncDoneText(m)
     is Message.WriteFailed -> when {
         m.beforeTime == null -> stringResource(R.string.import_new_failed, m.detail)
         m.rolledBack -> stringResource(R.string.restore_failed_rolled_back, m.detail, dateTime(m.beforeTime))
@@ -237,148 +414,14 @@ private fun messageText(m: Message): String = when (m) {
     }
 }
 
+/** Only says what happened: "1 granja subida · 1 descargada". */
 @Composable
-private fun StatusCard(state: UiState, vm: FarmListViewModel) {
-    val context = LocalContext.current
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val (label, action) = when (state.shizuku) {
-                ShizukuStatus.NOT_INSTALLED -> R.string.shizuku_not_installed to null
-                ShizukuStatus.NOT_RUNNING -> R.string.shizuku_not_running to {
-                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-                }
-                ShizukuStatus.NO_PERMISSION -> R.string.shizuku_no_permission to { vm.requestShizukuPermission() }
-                ShizukuStatus.READY -> R.string.shizuku_ready to null
-            }
-            Text(stringResource(label), style = MaterialTheme.typography.titleSmall)
-            action?.let {
-                Button(onClick = it) {
-                    Text(
-                        stringResource(
-                            if (state.shizuku == ShizukuStatus.NO_PERMISSION) R.string.grant_permission
-                            else R.string.open_developer_options
-                        )
-                    )
-                }
-            }
-            Text(
-                state.gameVersion?.let { stringResource(R.string.game_version, it) }
-                    ?: stringResource(R.string.game_not_installed),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (state.gameRunning) {
-                Text(
-                    stringResource(R.string.game_running),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-            }
-            if (state.shizuku != ShizukuStatus.READY) {
-                TextButton(onClick = vm::refresh) { Text(stringResource(R.string.check_again)) }
-            }
-        }
+private fun syncDoneText(m: Message.SyncDone): String {
+    val parts = buildList {
+        if (m.uploaded > 0) add(pluralStringResource(R.plurals.done_uploaded, m.uploaded, m.uploaded))
+        if (m.downloaded > 0) add(pluralStringResource(R.plurals.done_downloaded, m.downloaded, m.downloaded))
+        if (m.resolved > 0) add(pluralStringResource(R.plurals.done_resolved, m.resolved, m.resolved))
+        if (m.attention > 0) add(pluralStringResource(R.plurals.done_attention, m.attention, m.attention))
     }
-}
-
-@Composable
-private fun SyncCard(sync: SyncUi, syncedCount: Int, busy: Boolean, vm: FarmListViewModel) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (sync.email == null) {
-                Text(stringResource(R.string.drive_not_linked), style = MaterialTheme.typography.titleSmall)
-                Text(stringResource(R.string.drive_not_linked_hint), style = MaterialTheme.typography.bodySmall)
-                Button(onClick = vm::linkDrive, enabled = !busy) { Text(stringResource(R.string.drive_link)) }
-            } else {
-                Text(stringResource(R.string.drive_linked_as, sync.email), style = MaterialTheme.typography.titleSmall)
-                Text(
-                    pluralStringResource(R.plurals.sync_enabled_count, syncedCount, syncedCount) +
-                        (sync.lastSync?.let { " · " + stringResource(R.string.last_sync, dateTime(it)) } ?: ""),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = vm::syncNow, enabled = !busy) { Text(stringResource(R.string.sync_now)) }
-                    TextButton(onClick = vm::unlinkDrive, enabled = !busy) { Text(stringResource(R.string.drive_unlink)) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AvailableCard(r: FarmSyncResult, busy: Boolean, onDownload: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val info = r.remote?.info
-            Text(if (info != null) "${info.farmName} · ${info.farmer}" else r.farm, style = MaterialTheme.typography.titleMedium)
-            info?.let { Text(gameDate(it)) }
-            r.remote?.let { Text(stringResource(R.string.from_device, it.deviceName, dateTime(it.created)), style = MaterialTheme.typography.bodySmall) }
-            Button(onClick = onDownload, enabled = !busy) { Text(stringResource(R.string.download_to_device)) }
-        }
-    }
-}
-
-@Composable
-private fun FarmCard(farm: Farm, snapshots: List<SnapshotMeta>, syncLine: String?, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        colors = if (farm.isTestFarm) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        else CardDefaults.cardColors(),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val info = farm.info
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (info != null) "${info.farmName} · ${info.farmer}" else farm.folder,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                if (farm.isTestFarm) {
-                    AssistChip(onClick = onClick, label = { Text(stringResource(R.string.badge_test)) })
-                    Spacer(Modifier.width(4.dp))
-                }
-                if (farm.midday) AssistChip(onClick = onClick, label = { Text(stringResource(R.string.badge_midday)) })
-            }
-            if (info != null) {
-                Text(gameDate(info))
-                Text(stringResource(R.string.farm_version, info.gameVersion), style = MaterialTheme.typography.bodySmall)
-            }
-            SnapshotSummary(snapshots, current = farm.contentHash)
-            syncLine?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
-            Text(farm.folder, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            if (!farm.isComplete) {
-                Text(stringResource(R.string.farm_incomplete), color = MaterialTheme.colorScheme.error)
-            }
-            farm.error?.let { Text(stringResource(R.string.error_prefix, it), color = MaterialTheme.colorScheme.error) }
-        }
-    }
-}
-
-@Composable
-private fun ArchivedCard(folder: String, snapshots: List<SnapshotMeta>, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val info = snapshots.firstOrNull()?.info
-            Text(if (info != null) "${info.farmName} · ${info.farmer}" else folder, style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.archived_hint), style = MaterialTheme.typography.bodySmall)
-            SnapshotSummary(snapshots, current = null)
-        }
-    }
-}
-
-@Composable
-private fun SnapshotSummary(snapshots: List<SnapshotMeta>, current: String?) {
-    val latest = snapshots.firstOrNull()
-    val text = if (latest == null) stringResource(R.string.no_snapshots)
-    else stringResource(R.string.last_snapshot, dateTime(latest.createdAt), snapshots.size)
-    Text(text, style = MaterialTheme.typography.bodySmall)
-    if (latest != null && current != null && current.isNotEmpty() && latest.contentHash != current) {
-        Text(stringResource(R.string.changed_since_snapshot), style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.tertiary)
-    }
+    return if (parts.isEmpty()) stringResource(R.string.banner_all_synced) else parts.joinToString(" · ")
 }

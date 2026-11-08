@@ -124,6 +124,87 @@
     <string name="sync_waiting_midday">Drive tiene un día más nuevo; se descargará cuando duermas en el juego aquí (el progreso a mitad del día no se sobrescribe).</string>
     <string name="sync_resolved_local">✓ Jugada en dos dispositivos: se conservó esta (más tiempo de juego). La otra versión se guarda en Drive.</string>
     <string name="sync_resolved_remote">↓ Jugada en dos dispositivos: se tomó la otra (más tiempo de juego). La versión de este dispositivo se guarda en una copia y en Drive.</string>
+    <!-- v1.0 diseño de píxeles -->
+    <string name="a11y_day_tile">Día %1$d de %2$s, año %3$d</string>
+    <string name="a11y_day_unknown">Día desconocido</string>
+    <string name="year_short">año %1$d</string>
+    <string name="game_day">%1$d de %2$s · año %3$d</string>
+    <string name="play_time">%1$d h %2$02d min</string>
+    <string name="played">%1$s jugadas</string>
+    <string name="today_at">Hoy, %1$s</string>
+    <string name="yesterday_at">Ayer, %1$s</string>
+    <string name="st_off">Sin sincronizar</string>
+    <string name="st_not_yet">Aún sin sincronizar</string>
+    <string name="st_synced">Sincronizada</string>
+    <string name="st_uploaded">Subida a Drive</string>
+    <string name="st_downloaded">Día nuevo descargado</string>
+    <string name="st_resolved_local">Jugada en dos dispositivos: se quedó esta</string>
+    <string name="st_resolved_remote">Jugada en dos dispositivos: se tomó la otra</string>
+    <string name="st_waiting_midday">El día nuevo espera a que duermas en el juego</string>
+    <string name="st_game_open">Cierra Stardew para descargar</string>
+    <string name="st_conflict">Elige qué versión sigue</string>
+    <string name="st_failed">No se pudo sincronizar</string>
+    <string name="st_available">En Drive</string>
+    <string name="st_deleted_here">Borrada en este dispositivo</string>
+    <string name="more_options">Más opciones</string>
+    <string name="settings_title">Ajustes</string>
+    <string name="your_farms">Tus granjas</string>
+    <string name="banner_shizuku_off">Farm Sync no puede acceder a tus partidas</string>
+    <string name="banner_shizuku_off_hint">Conéctate al Wi-Fi de casa, activa la Depuración inalámbrica e inicia Shizuku.</string>
+    <string name="banner_syncing">Sincronizando…</string>
+    <plurals name="banner_attention">
+        <item quantity="one">%1$d granja necesita atención</item>
+        <item quantity="many">%1$d granjas necesitan atención</item>
+        <item quantity="other">%1$d granjas necesitan atención</item>
+    </plurals>
+    <string name="banner_attention_hint">Abre la granja para ver por qué.</string>
+    <string name="banner_close_game">Cierra Stardew para descargar</string>
+    <string name="banner_close_game_hint">Ciérralo desde Aplicaciones recientes y vuelve a abrir Farm Sync.</string>
+    <string name="banner_all_synced">Todo sincronizado</string>
+    <string name="banner_last_sync">%1$s · Google Drive</string>
+    <string name="snapshot_of">Última copia: %1$s</string>
+    <string name="archived_hint_short">Solo en copias de este dispositivo</string>
+    <plurals name="done_uploaded">
+        <item quantity="one">%1$d granja subida</item>
+        <item quantity="many">%1$d granjas subidas</item>
+        <item quantity="other">%1$d granjas subidas</item>
+    </plurals>
+    <plurals name="done_downloaded">
+        <item quantity="one">%1$d granja descargada</item>
+        <item quantity="many">%1$d granjas descargadas</item>
+        <item quantity="other">%1$d granjas descargadas</item>
+    </plurals>
+    <plurals name="done_resolved">
+        <item quantity="one">%1$d conflicto resuelto</item>
+        <item quantity="many">%1$d conflictos resueltos</item>
+        <item quantity="other">%1$d conflictos resueltos</item>
+    </plurals>
+    <plurals name="done_attention">
+        <item quantity="one">%1$d necesita atención</item>
+        <item quantity="many">%1$d necesitan atención</item>
+        <item quantity="other">%1$d necesitan atención</item>
+    </plurals>
+    <string name="back">Atrás</string>
+    <string name="share_farm">Compartir granja</string>
+    <string name="share">Compartir</string>
+    <string name="create_snapshot">Crear copia</string>
+    <string name="backups_title">Copias de seguridad</string>
+    <string name="tech_details">Detalles técnicos</string>
+    <string name="tech_folder">Carpeta</string>
+    <string name="tech_game_version">Versión del juego</string>
+    <string name="pinned">Fijada</string>
+    <string name="settings_drive">Google Drive</string>
+    <string name="settings_account">Cuenta</string>
+    <string name="settings_last_sync">Última sincronización</string>
+    <string name="settings_diagnostics">Diagnóstico</string>
+    <string name="diag_ready">Activo</string>
+    <string name="diag_not_running">No activo</string>
+    <string name="diag_no_permission">Sin permiso</string>
+    <string name="diag_not_installed">No instalado</string>
+    <string name="diag_wifi_note">Shizuku necesita la Depuración inalámbrica, que solo funciona en redes Wi-Fi que permitiste una vez.</string>
+    <string name="settings_sync_log">Registro de sincronización</string>
+    <string name="sync_log_empty">Aún no hay sincronizaciones</string>
+    <string name="settings_licenses">Fuente de píxeles Pixelify Sans (SIL OFL) · iconos Pixelarticons (MIT) · el icono y el diseño son originales. Sin relación con ConcernedApe ni Chucklefish.</string>
     <string-array name="seasons">
         <item>primavera</item>
         <item>verano</item>

@@ -5,13 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.ui.platform.LocalContext
 import app.farmsync.companion.ui.FarmListScreen
 import app.farmsync.companion.ui.FarmListViewModel
+import app.farmsync.companion.ui.theme.FarmSyncTheme
 import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
@@ -29,9 +25,7 @@ class MainActivity : ComponentActivity() {
         Shizuku.addBinderDeadListener(binderDead)
         Shizuku.addRequestPermissionResultListener(permissionResult)
         setContent {
-            val ctx = LocalContext.current
-            val scheme = if (isSystemInDarkTheme()) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
-            MaterialTheme(colorScheme = scheme) { FarmListScreen(vm) }
+            FarmSyncTheme { FarmListScreen(vm) }
         }
     }
 
