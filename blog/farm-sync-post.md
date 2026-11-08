@@ -1,6 +1,6 @@
 ---
 title: "I had an AI build a save sync for Stardew Valley. Then I had another one try to break it."
-status: draft
+status: published
 categories: [AI]
 tags: [Android, Claude, Codex, Google Drive, Shizuku, Stardew Valley]
 ---
@@ -91,7 +91,7 @@ The model got things wrong in ways that were mostly mine to catch. It restored t
 
 ## Try it yourself
 
-The [setup guide](https://github.com/managementboy/farmsync/blob/main/docs/SETUP.md) walks through it in five steps and about 15 minutes per device: Developer options, Shizuku, Wireless debugging, the app, and your Google Drive. No computer is needed. The [project page](https://elkin.de/farm-sync/) has the short version.
+The [setup guide](https://github.com/managementboy/farmsync/blob/main/docs/SETUP.md) walks through it in five steps and about 15 minutes per device: Developer options, Shizuku, Wireless debugging, the app, and your Google Drive. No computer is needed. Once it runs, the [user guide](https://github.com/managementboy/farmsync/blob/main/docs/USER-GUIDE.md) explains every screen and the everyday situations, from playing on two devices by mistake to moving a farm to a PC. The [APK is on the release page](https://github.com/managementboy/farmsync/releases/tag/v1.0.0), and the [project page](https://elkin.de/farm-sync/) has the short version.
 
 Two honest warnings. On Samsung devices you have to switch off Auto Blocker. And Shizuku only runs while Wireless debugging is on, which Android only allows on Wi-Fi you have approved. There is no warranty of any kind; it is a hobby project that two AIs and one non-developer built in a day.
 
@@ -100,7 +100,9 @@ If it eats your farm, at least there will be a backup.
 ## Links
 
 - Source code (MIT): [github.com/managementboy/farmsync](https://github.com/managementboy/farmsync)
+- Download (APK): [Farm Sync 1.0.0](https://github.com/managementboy/farmsync/releases/tag/v1.0.0)
 - Setup guide: [docs/SETUP.md](https://github.com/managementboy/farmsync/blob/main/docs/SETUP.md)
+- User guide: [docs/USER-GUIDE.md](https://github.com/managementboy/farmsync/blob/main/docs/USER-GUIDE.md)
 - Project page: [elkin.de/farm-sync](https://elkin.de/farm-sync/)
 - Privacy policy: [elkin.de/farm-sync-privacy](https://elkin.de/farm-sync-privacy/)
 - Shizuku: [shizuku.rikka.app](https://shizuku.rikka.app/)

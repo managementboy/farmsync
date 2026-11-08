@@ -1,6 +1,6 @@
 # Farm Sync – Privacy Policy
 
-*Last updated: 8 November 2026 (version 0.10.1)*
+*Last updated: 8 November 2026 (Farm Sync 1.0)*
 
 Farm Sync is a free, open-source Android app that backs up and synchronises save files of the game *Stardew Valley* between your own devices. It is a hobby project by Elkin Fricke and is not affiliated with or endorsed by ConcernedApe, Chucklefish or Google.
 
@@ -48,4 +48,4 @@ Changes to this policy will be published on this page with a new date.
 
 ## Contact
 
-Elkin Fricke – managementboy@gmail.com
+Elkin Fricke, managementboy@gmail.com
