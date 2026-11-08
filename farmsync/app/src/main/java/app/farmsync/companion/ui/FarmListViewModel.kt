@@ -390,6 +390,8 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
                 // off), before any snapshot or sync looks at those farms.
                 recoverInterrupted(fs)
                 scanInto(fs)
+                // Staging files of a write killed before it recorded itself: harmless, but cleared.
+                withContext(Dispatchers.IO) { ops(fs).discardLeftoverStaging(_state.value.farms.map { it.folder }) }
                 // On every return to the app, not just at start: a farm played in between gets
                 // its snapshot even if Farm Sync stayed in memory. Unchanged farms are skipped.
                 snapshotChanged(fs, _state.value.farms.filter { !journal.has(it.folder) }, SnapshotOrigin.AUTO_OPEN, quietIfNone = true)

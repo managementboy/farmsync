@@ -190,3 +190,41 @@ In both cases nothing is written and nothing is uploaded. No retry state needs t
 | `SyncEngineTest.aDayPlayedRightAfterTheRetryIsRecognisedIsNeverReplaced` | The fake game saves day 9 right after the retry recognises the earlier download (before the next scan). Day 9 stays live, `RETRY_LATER`, no commit, no upload. Checked to fail on the 0.10.4 logic (`DOWNLOADED`) and to pass with the fix. |
 
 **JVM result:** 98 tests, 0 failures. Release readiness is unchanged: the device and real-Drive checks listed under 0.10.4 are still open.
+
+# First device test (tablet, 8 November 2026; Farm Sync 0.10.5 → 0.10.6)
+
+**Device:** Samsung Tab A11 (SM-X130), Android 16, Stardew 1.6.15.3, Shizuku running.
+
+**Preparation:**
+- Verified backups of both devices' saves and of Farm Sync's app data.
+- 0.10.5, and later 0.10.6, installed on tablet and phone (`--user 0`); the phone app was not opened.
+- On the tablet, sync was switched off for La Maria. Every write test ran on a throwaway copy, `SyncTest_900000001`, pushed from `testdata/`. La Maria was never written.
+
+| Check | Result |
+|---|---|
+| Update keeps snapshots and settings (same signing key) | OK on both devices |
+| First open: scan, strict save check (SAX on Android), auto snapshot incl. mid-day files | OK |
+| First sync of the household vault in the new format (old-vault migration on the folders it touched); test farm uploaded | OK (UPLOADED, no errors) |
+| Restore through the app: staging with `O_EXCL\|O_NOFOLLOW`, `fchmod`, commit, pointer removal, verification | OK: checksums exact, `BACKUP_SAVE` removed, no staging files left, permissions `rw-rw-rw-` as before, journal empty |
+| Restore becomes the shared version (journal → forced flag → upload) | OK: flag set, uploaded at the next sync, flag cleared |
+| Link files on Android's shared storage | Refused by Android ("Permission denied"), both in a farm folder and in Saves |
+| Killing Farm Sync during a restore (6 timed kills, 2.3–5.5 s) | Live files always completely old or completely new; journal never left behind. Kills during staging left `*.sstmp` files (see below). |
+| Interrupted swap, staged by hand: main file new, SaveGameInfo old, journal present | Recovery at start rolled back to the exact old state; journal cleared |
+| Interruption followed by play, staged by hand (SaveGameInfo matches neither old nor new) | Kept exactly; snapshot made; Spanish message shown; journal cleared |
+| Sync switch semantics | One checkable node over the whole row, 64 px high (48 dp) |
+
+**Found on the device and fixed in 0.10.6:**
+- **The finding:** a kill during staging, before the journal entry exists, left staging files in the farm folder. They were hidden from the app and overwritten by the next write, but they were clutter.
+- **The fix:** at start-up, `SaveOps.discardLeftoverStaging` removes them, only for farms with no write in progress. Live files are never touched.
+- **Proof:**
+  - JVM test `SaveOpsTest.stagingLeftByAKillBeforeTheJournalIsClearedAtStart`;
+  - on the tablet, 4 leftover files were gone after opening the app, with live files unchanged.
+
+**JVM result:** 99 tests, 0 failures.
+
+**Still not covered on a device:**
+- **Import:** a valid zip and a broken zip (these need the system file picker).
+- **Google sign-in:** cancel, and Android closing the app during sign-in.
+- **The phone:** 0.10.6 is installed but hasn't been opened; its first sync will convert the household vault's remaining farms, including La Maria.
+- **Accessibility:** TalkBack, and 200% font size.
+- **Starting Stardew mid-write:** the window between two renames.

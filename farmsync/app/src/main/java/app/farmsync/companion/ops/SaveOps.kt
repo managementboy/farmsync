@@ -339,6 +339,15 @@ class SaveOps(
         return md5s.takeIf { it.all { (n, md5) -> md5 == e.targetMd5[n] || md5 == e.alsoOurs[n] } }
     }
 
+    /**
+     * Removes staging files (`*.sstmp`) a write left behind when the app was killed before its
+     * journal entry existed (found on the tablet, 0.10.5). Only for farms with no write in
+     * progress; live files are never touched. Call only while no write runs.
+     */
+    fun discardLeftoverStaging(farms: List<String>) {
+        for (f in farms) if (!journal.has(f)) runCatching { fs.discardStaged(f) }
+    }
+
     /** True if the farm is an unfinished new folder from an interrupted download or import. */
     fun isUnfinishedNewFarm(farm: String) = journal.get(farm)?.kind == JournalEntry.Kind.NEW_FARM
 

@@ -417,6 +417,27 @@ class SaveOpsTest {
         assertEquals(commits, d.fs.commits)
     }
 
+    @Test
+    fun stagingLeftByAKillBeforeTheJournalIsClearedAtStart() {
+        val d = device()
+        val target = day9(d)
+        var staged = 0
+        val source = object : FileSource by SnapshotSource(d.store, target) {
+            override fun copyTo(name: String, dest: java.io.File): String {
+                if (++staged == 4) throw Killed() // dies while staging the second file
+                return SnapshotSource(d.store, target).copyTo(name, dest)
+            }
+        }
+        try { ops(d).replace(source, v, SnapshotOrigin.BEFORE_RESTORE); fail() } catch (_: Killed) {}
+        assertFalse(d.journal.has(farm))
+        val staging = { java.io.File(d.fs.root, farm).listFiles()!!.count { it.name.endsWith(".sstmp") } }
+        assertTrue(staging() > 0)
+        val live = fp(d)
+        ops(d).discardLeftoverStaging(listOf(farm))
+        assertEquals(0, staging())
+        assertEquals(live, fp(d))
+    }
+
     private fun assertBlocked(reason: OpBlocked.Reason, block: () -> Unit) {
         try {
             block()
