@@ -53,9 +53,11 @@ fun whenText(ms: Long): String {
     }
 }
 
-/** "hace 2 min" */
+/** "hace 2 min", or "ahora mismo" within the first minute (never "hace 0 minutos"). */
+@Composable
 fun relative(ms: Long): String =
-    DateUtils.getRelativeTimeSpanString(ms, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+    if (System.currentTimeMillis() - ms < DateUtils.MINUTE_IN_MILLIS) stringResource(R.string.just_now)
+    else DateUtils.getRelativeTimeSpanString(ms, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
 
 fun dateTime(ms: Long): String =
     java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(Date(ms))

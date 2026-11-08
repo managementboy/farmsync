@@ -204,7 +204,8 @@
     <string name="diag_wifi_note">Shizuku necesita la Depuración inalámbrica, que solo funciona en redes Wi-Fi que permitiste una vez.</string>
     <string name="settings_sync_log">Registro de sincronización</string>
     <string name="sync_log_empty">Aún no hay sincronizaciones</string>
-    <string name="settings_licenses">Fuente de píxeles Pixelify Sans (SIL OFL) · iconos Pixelarticons (MIT) · el icono y el diseño son originales. Sin relación con ConcernedApe ni Chucklefish.</string>
+    <string name="settings_licenses">Fuentes de píxeles Pixelify Sans y Silkscreen (SIL OFL) · iconos Pixelarticons (MIT) · el icono y el diseño son originales. Sin relación con ConcernedApe ni Chucklefish.</string>
+    <string name="just_now">ahora mismo</string>
     <string-array name="seasons">
         <item>primavera</item>
         <item>verano</item>

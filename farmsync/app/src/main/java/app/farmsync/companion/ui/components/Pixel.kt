@@ -114,12 +114,15 @@ fun DayTile(info: SaveInfo?, big: Boolean = false) {
     }
     Column(
         modifier = Modifier
-            .size(if (big) 96.dp else 64.dp, if (big) 108.dp else 76.dp)
+            // Width fixed, height grows with the system font size so "año 1" never gets cut off.
+            .width(if (big) 96.dp else 68.dp)
+            .defaultMinSize(minHeight = if (big) 108.dp else 76.dp)
             .pixelFrame(fill, c.tileFrame, border = 3.dp)
             .clearAndSetSemantics { contentDescription = description },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        Spacer(Modifier.height(6.dp))
         Text(
             info?.day?.toString() ?: "?",
             style = if (big) FarmType.tileNumberBig else FarmType.tileNumber,
@@ -127,6 +130,7 @@ fun DayTile(info: SaveInfo?, big: Boolean = false) {
         )
         Text(seasons.getOrElse(season) { "" }, fontSize = 12.sp, color = c.tileInk, modifier = Modifier.padding(top = 3.dp))
         if (info != null) Text(stringResource(R.string.year_short, info.year), fontSize = 11.sp, color = c.tileInk)
+        Spacer(Modifier.height(6.dp))
     }
 }
 

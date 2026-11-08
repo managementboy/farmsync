@@ -77,14 +77,17 @@ val Pixelify = FontFamily(
     Font(R.font.pixelify_sans, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700))),
 )
 
+/** Pixel face with unambiguous digits (Pixelify's 5 looks like an S), for the day number. */
+val Silkscreen = FontFamily(Font(R.font.silkscreen, FontWeight.Normal))
+
 object FarmType {
     val appTitle = TextStyle(fontFamily = Pixelify, fontWeight = FontWeight.Bold, fontSize = 28.sp)
     val screenTitle = TextStyle(fontFamily = Pixelify, fontWeight = FontWeight.Bold, fontSize = 24.sp)
     val section = TextStyle(fontFamily = Pixelify, fontWeight = FontWeight.Bold, fontSize = 19.sp)
     val farmName = TextStyle(fontFamily = Pixelify, fontWeight = FontWeight.Bold, fontSize = 21.sp)
     val heroName = TextStyle(fontFamily = Pixelify, fontWeight = FontWeight.Bold, fontSize = 28.sp)
-    val tileNumber = TextStyle(fontFamily = Pixelify, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 30.sp)
-    val tileNumberBig = TextStyle(fontFamily = Pixelify, fontWeight = FontWeight.Bold, fontSize = 44.sp, lineHeight = 44.sp)
+    val tileNumber = TextStyle(fontFamily = Silkscreen, fontSize = 26.sp, lineHeight = 28.sp)
+    val tileNumberBig = TextStyle(fontFamily = Silkscreen, fontSize = 40.sp, lineHeight = 42.sp)
 }
 
 object Farm {

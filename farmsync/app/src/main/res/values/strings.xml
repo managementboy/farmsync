@@ -198,7 +198,8 @@
     <string name="diag_wifi_note">Shizuku needs Wireless debugging, which only works on Wi-Fi networks you allowed once.</string>
     <string name="settings_sync_log">Sync log</string>
     <string name="sync_log_empty">No syncs yet</string>
-    <string name="settings_licenses">Pixel font Pixelify Sans (SIL OFL) · icons Pixelarticons (MIT) · app icon and design are original. Not affiliated with ConcernedApe or Chucklefish.</string>
+    <string name="settings_licenses">Pixel fonts Pixelify Sans and Silkscreen (SIL OFL) · icons Pixelarticons (MIT) · app icon and design are original. Not affiliated with ConcernedApe or Chucklefish.</string>
+    <string name="just_now">just now</string>
     <string-array name="seasons">
         <item>Spring</item>
         <item>Summer</item>
