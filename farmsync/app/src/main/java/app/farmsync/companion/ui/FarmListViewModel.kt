@@ -72,7 +72,8 @@ data class UiState(
 data class SyncUi(
     /** The linked vault account, or null if Drive is not linked on this device. */
     val email: String? = null,
-    val enabled: Set<String> = emptySet(),
+    /** Farms switched OFF for sync on this device; everything else syncs. */
+    val disabled: Set<String> = emptySet(),
     val results: Map<String, FarmSyncResult> = emptyMap(),
     /** Farms in the vault that are not on this device (never downloaded automatically). */
     val available: List<FarmSyncResult> = emptyList(),
@@ -115,7 +116,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
             FarmSyncResult(farm, e.outcome, detail = e.detail)
         }
         _state.update {
-            it.copy(sync = it.sync.copy(email = syncPrefs.email, enabled = enabledFarms(), results = last,
+            it.copy(sync = it.sync.copy(email = syncPrefs.email, disabled = syncPrefs.disabled, results = last,
                 lastSync = log.lastTime()))
         }
     }
@@ -155,12 +156,12 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
 
     fun unlinkDrive() {
         syncPrefs.unlink()
-        _state.update { it.copy(sync = SyncUi(enabled = enabledFarms())) }
+        _state.update { it.copy(sync = SyncUi(disabled = syncPrefs.disabled)) }
     }
 
     fun setSyncEnabled(farm: String, on: Boolean) {
         syncPrefs.setEnabled(farm, on)
-        _state.update { it.copy(sync = it.sync.copy(enabled = enabledFarms())) }
+        _state.update { it.copy(sync = it.sync.copy(disabled = syncPrefs.disabled)) }
     }
 
     /** Syncs every farm switched on for sync; lists vault farms that are not on this device. */
@@ -214,7 +215,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(sync = it.sync.copy(
                 results = it.sync.results + (farm to r),
                 available = it.sync.available.filterNot { a -> a.farm == farm },
-                enabled = enabledFarms(),
+                disabled = syncPrefs.disabled,
             ))
         }
         null
@@ -273,8 +274,6 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun enabledFarms(): Set<String> =
-        getApplication<Application>().getSharedPreferences("sync", 0).getStringSet("enabled", emptySet())!!.toSet()
 
     // ---------------------------------------------------------------- local
 

@@ -28,13 +28,15 @@ class SyncPrefs(private val context: Context) {
         get() = Settings.Global.getString(context.contentResolver, Settings.Global.DEVICE_NAME)
             ?.takeIf { it.isNotBlank() } ?: Build.MODEL
 
-    /** Farms this device syncs. Off by default: each farm is opted in deliberately. */
-    fun isEnabled(farm: String) = farm in p.getStringSet("enabled", emptySet())!!
+    /** Every farm syncs by default (user decision 2026-11-08); a farm can be switched off. */
+    fun isEnabled(farm: String) = farm !in disabled
+
+    val disabled: Set<String> get() = p.getStringSet("disabled", emptySet())!!.toSet()
 
     fun setEnabled(farm: String, on: Boolean) {
-        val s = p.getStringSet("enabled", emptySet())!!.toMutableSet()
-        if (on) s += farm else s -= farm
-        p.edit().putStringSet("enabled", s).apply()
+        val s = disabled.toMutableSet()
+        if (on) s -= farm else s += farm
+        p.edit().putStringSet("disabled", s).remove("enabled").apply()
     }
 
     /** The version this device had after its last sync of [farm]. */

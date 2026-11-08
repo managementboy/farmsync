@@ -16,8 +16,14 @@ class ConflictPolicyTest {
         assertFalse(keep(info(1_000), false, 0, info(2_000), 0))
     }
 
-    @Test fun middayHereAlwaysKeepsThisDevice() =
+    @Test fun middayHereWinsCloseCalls() =
         assertTrue(keep(info(1_000), true, 0, info(9_000), 0))
+
+    @Test fun middayHereLosesToClearlyMorePlay() {
+        val hour = 3_600_000L
+        // Tablet played an hour further; phone only has a bit of mid-day progress → tablet wins.
+        assertFalse(keep(info(10 * hour), true, 0, info(11 * hour), 0))
+    }
 
     @Test fun equalPlayTimeLaterDayWins() {
         assertTrue(keep(info(1_000, day = 26), false, 0, info(1_000, day = 25), 0))

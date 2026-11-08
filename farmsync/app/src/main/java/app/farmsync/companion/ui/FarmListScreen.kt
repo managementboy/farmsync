@@ -119,7 +119,7 @@ fun FarmListScreen(vm: FarmListViewModel) {
             onRestore = vm::restore,
             onExport = { vm.export(selected) },
             driveLinked = state.sync.email != null,
-            syncEnabled = selected in state.sync.enabled,
+            syncEnabled = selected !in state.sync.disabled,
             syncResult = state.sync.results[selected],
             onSyncEnabled = { vm.setSyncEnabled(selected, it) },
             onResolve = { keepLocal -> vm.resolve(selected, keepLocal) },
@@ -160,7 +160,7 @@ fun FarmListScreen(vm: FarmListViewModel) {
             ) {
                 if (state.busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 item { StatusCard(state, vm) }
-                if (state.shizuku == ShizukuStatus.READY) item { SyncCard(state.sync, state.busy, vm) }
+                if (state.shizuku == ShizukuStatus.READY) item { SyncCard(state.sync, state.farms.count { it.folder !in state.sync.disabled }, state.busy, vm) }
                 state.error?.let { err ->
                     item { Text(stringResource(R.string.error_prefix, err), color = MaterialTheme.colorScheme.error) }
                 }
@@ -171,7 +171,7 @@ fun FarmListScreen(vm: FarmListViewModel) {
                     FarmCard(
                         farm, state.snapshots[farm.folder].orEmpty(),
                         syncLine = if (state.sync.email == null) null
-                        else syncStatusText(farm.folder in state.sync.enabled, state.sync.results[farm.folder]),
+                        else syncStatusText(farm.folder !in state.sync.disabled, state.sync.results[farm.folder]),
                     ) { vm.select(farm.folder) }
                 }
                 if (state.sync.available.isNotEmpty()) {
@@ -281,7 +281,7 @@ private fun StatusCard(state: UiState, vm: FarmListViewModel) {
 }
 
 @Composable
-private fun SyncCard(sync: SyncUi, busy: Boolean, vm: FarmListViewModel) {
+private fun SyncCard(sync: SyncUi, syncedCount: Int, busy: Boolean, vm: FarmListViewModel) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (sync.email == null) {
@@ -291,7 +291,7 @@ private fun SyncCard(sync: SyncUi, busy: Boolean, vm: FarmListViewModel) {
             } else {
                 Text(stringResource(R.string.drive_linked_as, sync.email), style = MaterialTheme.typography.titleSmall)
                 Text(
-                    pluralStringResource(R.plurals.sync_enabled_count, sync.enabled.size, sync.enabled.size) +
+                    pluralStringResource(R.plurals.sync_enabled_count, syncedCount, syncedCount) +
                         (sync.lastSync?.let { " · " + stringResource(R.string.last_sync, dateTime(it)) } ?: ""),
                     style = MaterialTheme.typography.bodySmall,
                 )
