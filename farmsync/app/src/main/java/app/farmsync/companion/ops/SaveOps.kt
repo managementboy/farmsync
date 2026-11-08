@@ -32,7 +32,13 @@ class OpBlocked(val reason: Reason, detail: String = reason.name) : Exception(de
  * Writing failed after it started. [rolledBack] tells whether the previous state was put back
  * and verified. [before] holds that state (null for a new farm, which had no previous state).
  */
-class OpFailed(detail: String, val before: SnapshotMeta?, val rolledBack: Boolean) : Exception(detail)
+class OpFailed(
+    detail: String,
+    val before: SnapshotMeta?,
+    val rolledBack: Boolean,
+    /** The farm changed during the write (the game saved): it was kept as it is, with a snapshot. */
+    val keptCurrent: Boolean = false,
+) : Exception(detail)
 
 data class OpResult(val before: SnapshotMeta?, val pointerRemoved: Boolean)
 
@@ -151,11 +157,25 @@ class SaveOps(
             return OpResult(before, pointerRemoved)
         } catch (e: Exception) {
             runCatching { fs.discardStaged(name) }
-            val back = runCatching { rollback(entry, before) }.isSuccess
-            if (back) journal.clear(name)
-            throw OpFailed(e.message ?: e.javaClass.simpleName, before, rolledBack = back)
+            val detail = e.message ?: e.javaClass.simpleName
+            val back = runCatching { rollback(entry, before) }
+            when {
+                back.isSuccess -> {
+                    journal.clear(name)
+                    throw OpFailed(detail, before, rolledBack = true)
+                }
+                // Stardew saved meanwhile (S04): that progress is kept, never rolled over.
+                back.exceptionOrNull() is Unexplained -> {
+                    currentFarm(name)?.let { keepCurrent(it, name) } ?: journal.clear(name)
+                    throw OpFailed(detail, before, rolledBack = false, keptCurrent = true)
+                }
+                else -> throw OpFailed(detail, before, rolledBack = false)
+            }
         }
     }
+
+    /** The farm is in a state the write can't explain: rolling back would overwrite progress. */
+    private class Unexplained : Exception("unexplained")
 
     /** Adds a farm that is not on this device yet, as a new folder. */
     fun addNew(source: FileSource, installedGameVersion: String?, deliberate: Boolean = false): OpResult {
@@ -165,14 +185,18 @@ class SaveOps(
         val existing = currentFarm(name)
         // A folder left by an interrupted download of this farm may be finished, but only while
         // it still holds nothing but files from that download (never a farm played since).
-        if (existing != null && (pending == null || !isOnlyPartOf(name, pending.targetMd5))) {
+        // An incomplete folder of ours (no SaveGameInfo or no main file) can't have been played.
+        if (existing != null && (pending == null || !(isOnlyPartOf(name, pending) || !existing.isComplete))) {
             throw OpBlocked(OpBlocked.Reason.FARM_EXISTS)
         }
         val files = checkPreconditions(source, installedGameVersion)
+        // What an earlier attempt left stays recognised as ours if this attempt is interrupted too.
+        val leftover = existing?.files?.filter { it.name in SavePaths.standardFiles(name) }
+            ?.associate { it.name to fs.md5("$name/${it.name}") }.orEmpty()
 
         // Recorded before the folder exists, so a folder this app creates is always known as its own.
         val entry = JournalEntry(name, JournalEntry.Kind.NEW_FARM, null, emptyMap(),
-            files.associateWith { source.md5(it) }, clock(), deliberate)
+            files.associateWith { source.md5(it) }, clock(), deliberate, alsoOurs = leftover)
         journal.save(entry)
         try {
             if (existing == null) fs.createFarmFolder(name)
@@ -223,7 +247,7 @@ class SaveOps(
                 Recovery.COMPLETED
             }
             entry.kind == JournalEntry.Kind.NEW_FARM -> {
-                if (isOnlyPartOf(name, entry.targetMd5)) {
+                if (isOnlyPartOf(name, entry) || !farm.isComplete) {
                     Recovery.INCOMPLETE_NEW_FARM // downloading or importing it again finishes it
                 } else {
                     keepCurrent(farm, name)
@@ -235,11 +259,14 @@ class SaveOps(
             }
             explainedBy(name, entry) -> {
                 val before = store.list(name).firstOrNull { it.id == entry.beforeSnapshot } ?: return Recovery.NEEDS_HELP
-                if (runCatching { rollback(entry, before) }.isSuccess) {
-                    journal.clear(name)
-                    Recovery.ROLLED_BACK
-                } else {
-                    Recovery.NEEDS_HELP
+                val back = runCatching { rollback(entry, before) }
+                when {
+                    back.isSuccess -> {
+                        journal.clear(name)
+                        Recovery.ROLLED_BACK
+                    }
+                    back.exceptionOrNull() is Unexplained -> keepCurrent(currentFarm(name) ?: farm, name)
+                    else -> Recovery.NEEDS_HELP
                 }
             }
             else -> keepCurrent(farm, name)
@@ -253,17 +280,24 @@ class SaveOps(
         return Recovery.KEPT_CURRENT
     }
 
-    /** Every file is either its state before the write or the one the write put there. */
+    /**
+     * Every file is either its state before the write or the one the write put there (the old
+     * pointer may also be gone: the write removes it).
+     */
     private fun explainedBy(farm: String, e: JournalEntry) = SavePaths.stageable(farm).all { n ->
         val now = fs.md5("$farm/$n")
-        now == (e.beforeMd5[n] ?: "") || (e.targetMd5[n] != null && now == e.targetMd5[n])
+        now == (e.beforeMd5[n] ?: "") || (e.targetMd5[n] != null && now == e.targetMd5[n]) ||
+            (n == SavePaths.POINTER && now == "")
     }
 
-    /** The folder holds only (some of) [target]'s files and no pointer: nothing played in it. */
-    private fun isOnlyPartOf(farm: String, target: Map<String, String>): Boolean {
+    /** The folder holds only files of this download (or an earlier attempt) and no pointer. */
+    private fun isOnlyPartOf(farm: String, e: JournalEntry): Boolean {
         val f = currentFarm(farm) ?: return true
         if (f.files.any { it.name == SavePaths.POINTER }) return false
-        return f.files.all { file -> target[file.name]?.let { it == fs.md5("$farm/${file.name}") } == true }
+        return f.files.all { file ->
+            val now = fs.md5("$farm/${file.name}")
+            now == e.targetMd5[file.name] || now == e.alsoOurs[file.name]
+        }
     }
 
     /** True if the farm is an unfinished new folder from an interrupted download or import. */
@@ -276,10 +310,17 @@ class SaveOps(
      */
     private fun rollback(entry: JournalEntry, before: SnapshotMeta) {
         val name = entry.farm
+        // Only what this write can explain is rolled back; anything else is new play (S04).
+        if (!explainedBy(name, entry)) throw Unexplained()
         if (fs.isGameRunning()) error("Stardew is running")
         val back = SnapshotSource(store, before)
         val names = entry.beforeMd5.keys.filter { it in back.names }
         stageAll(back, names)
+        // Checked again right before the renames: staging takes a moment.
+        if (fs.isGameRunning() || !explainedBy(name, entry)) {
+            runCatching { fs.discardStaged(name) }
+            if (fs.isGameRunning()) error("Stardew is running") else throw Unexplained()
+        }
         fs.commit(name, commitOrder(names))
         // `_old` files the failed write added (absent before) are removed again, but only if they
         // are still exactly what the write put there.

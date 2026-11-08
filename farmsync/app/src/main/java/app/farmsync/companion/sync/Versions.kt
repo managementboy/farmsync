@@ -29,6 +29,8 @@ data class VersionEntry(
     val info: SaveInfo?,
     /** Lost an automatic conflict decision; kept in the vault, never the newest. */
     val lost: Boolean = false,
+    /** A restore or import the user chose: a new end of history even if an older copy exists. */
+    val deliberate: Boolean = false,
 ) {
     companion object {
         fun newId(): String = UUID.randomUUID().toString().replace("-", "").take(16)
@@ -38,10 +40,39 @@ data class VersionEntry(
 /** Reads the shared state out of a farm's version set. Pure; every device computes the same. */
 object VersionGraph {
 
-    /** Versions nothing continues from, i.e. the ends of every line of play. */
+    /**
+     * Versions nothing continues from, i.e. the ends of every line of play.
+     *
+     * Uploads of the very same save are one point in history: a version is also not an end if
+     * another version continued from a copy of the same save, unless that other version is in
+     * its own past (a later restore of an old save is a new end, not an old copy). This holds no
+     * matter in which order the copies became visible (S05).
+     */
     fun tips(all: List<VersionEntry>): List<VersionEntry> {
+        val byId = all.associateBy { it.id }
         val referenced = all.flatMap { it.parents }.toSet()
-        return all.filter { it.id !in referenced }
+        // For each fingerprint: the versions that continued from a copy of it.
+        val continuedFrom = HashMap<String, MutableList<VersionEntry>>()
+        for (w in all) for (p in w.parents) byId[p]?.let { continuedFrom.getOrPut(it.fingerprint) { mutableListOf() } += w }
+        return all.filter { v ->
+            if (v.id in referenced) return@filter false
+            val successors = continuedFrom[v.fingerprint].orEmpty().filter { it.id != v.id }
+            if (successors.isEmpty()) return@filter true
+            if (v.deliberate) return@filter true // a chosen restore is never just "a late copy"
+            val past = ancestors(v, byId)
+            successors.all { it.id in past }
+        }
+    }
+
+    /** Every version [v] continues from, directly or indirectly. */
+    fun ancestors(v: VersionEntry, byId: Map<String, VersionEntry>): Set<String> {
+        val seen = HashSet<String>()
+        val todo = ArrayDeque(v.parents)
+        while (todo.isNotEmpty()) {
+            val id = todo.removeFirst()
+            if (seen.add(id)) byId[id]?.let { todo.addAll(it.parents) }
+        }
+        return seen
     }
 
     /**
@@ -92,6 +123,7 @@ object VersionProps {
             put("fn", fit("fn", i.farmName))
         }
         if (v.lost) put("lost", "1")
+        if (v.deliberate) put("rst", "1")
     }
 
     fun decode(fileId: String, p: Map<String, String>): VersionEntry? {
@@ -110,7 +142,7 @@ object VersionProps {
             parents = (0 until PARENT_KEYS).flatMap { i -> p[parentKey(i)]?.split(',').orEmpty() }.filter { it.isNotBlank() },
             deviceId = p["dev"].orEmpty(), deviceName = p["dn"].orEmpty(),
             created = p["t"]?.toLongOrNull() ?: 0L, savedAt = p["sa"]?.toLongOrNull() ?: 0L,
-            info = info, lost = p["lost"] == "1",
+            info = info, lost = p["lost"] == "1", deliberate = p["rst"] == "1",
         )
     }
 

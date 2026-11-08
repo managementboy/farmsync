@@ -24,6 +24,11 @@ data class JournalEntry(
      * the next sync makes it the shared version. Stored here so a crash can't lose it.
      */
     val deliberate: Boolean = false,
+    /**
+     * New farm only: files an earlier, interrupted attempt left in the folder (verified then to
+     * be that attempt's own). A retry may meet them too, so they still count as ours (S02).
+     */
+    val alsoOurs: Map<String, String> = emptyMap(),
 ) {
     enum class Kind { REPLACE, NEW_FARM }
 
@@ -32,7 +37,7 @@ data class JournalEntry(
         .put("beforeSnapshot", beforeSnapshot ?: JSONObject.NULL)
         .put("beforeMd5", JSONObject(beforeMd5))
         .put("targetMd5", JSONObject(targetMd5)).put("startedAt", startedAt)
-        .put("deliberate", deliberate)
+        .put("deliberate", deliberate).put("alsoOurs", JSONObject(alsoOurs))
 
     companion object {
         fun fromJson(o: JSONObject) = JournalEntry(
@@ -43,6 +48,7 @@ data class JournalEntry(
             targetMd5 = o.getJSONObject("targetMd5").toStringMap(),
             startedAt = o.getLong("startedAt"),
             deliberate = o.optBoolean("deliberate", false),
+            alsoOurs = o.optJSONObject("alsoOurs")?.toStringMap().orEmpty(),
         )
 
         private fun JSONObject.toStringMap() = keys().asSequence().associateWith { getString(it) }

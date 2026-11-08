@@ -439,6 +439,7 @@ fun messageText(m: Message): String = when (m) {
         }
     }.filter { it.isNotEmpty() }.joinToString("\n")
     is Message.WriteFailed -> when {
+        m.keptCurrent -> stringResource(R.string.write_kept_current)
         m.beforeTime == null -> stringResource(R.string.import_new_failed, m.detail)
         m.rolledBack -> stringResource(R.string.restore_failed_rolled_back, m.detail, dateTime(m.beforeTime))
         else -> stringResource(R.string.restore_failed_no_rollback, m.detail, dateTime(m.beforeTime))

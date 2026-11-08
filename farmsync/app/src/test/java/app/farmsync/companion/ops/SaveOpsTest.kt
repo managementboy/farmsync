@@ -341,6 +341,44 @@ class SaveOpsTest {
         assertTrue(marked.isEmpty())
     }
 
+    // ---------------------------------------------------------------- re-check 0.10.1 (S02, S04)
+
+    @Test
+    fun theGameSavingRightAfterTheCommitIsNeverRolledOver() {
+        val d = device()
+        val target = day9(d)
+        // Stardew starts, saves day 10 and closes between the renames and the verification.
+        d.fs.afterCommit = { d.fs.writeFarm(farm, day = 10, playedMs = 10_000) }
+        try {
+            ops(d).restore(target, v); fail()
+        } catch (e: OpFailed) {
+            assertTrue(e.keptCurrent)
+            assertFalse(e.rolledBack)
+        }
+        assertEquals(10, d.fs.farm(farm)!!.info!!.day)
+        assertFalse(d.journal.has(farm))
+        assertEquals(10, d.store.latest(farm)!!.info!!.day) // and it was backed up
+    }
+
+    @Test
+    fun aRetryAgainstANewerDriveVersionSurvivesASecondInterruption() {
+        val d = Device(tmp.root, "tablet")
+        val a = Device(tmp.root, "srcA").apply { fs.writeFarm(farm, day = 3, playedMs = 3000) }
+        val snapA = a.store.create(a.fs, a.fs.farm(farm)!!, SnapshotOrigin.MANUAL)
+        val b = Device(tmp.root, "srcB").apply { fs.writeFarm(farm, day = 4, playedMs = 4000) }
+        val snapB = b.store.create(b.fs, b.fs.farm(farm)!!, SnapshotOrigin.MANUAL)
+
+        d.fs.killAfterRenames = 1 // download of A: main file in, SaveGameInfo not
+        try { ops(d).addNew(SnapshotSource(a.store, snapA), v); fail() } catch (_: Killed) {}
+        d.fs.killOnStage = true // retry with B (Drive moved on): dies right after its journal entry
+        try { ops(d).addNew(SnapshotSource(b.store, snapB), v); fail() } catch (_: Killed) {}
+
+        assertEquals(Recovery.INCOMPLETE_NEW_FARM, ops(d).recover(d.journal.get(farm)!!))
+        ops(d).addNew(SnapshotSource(b.store, snapB), v) // still possible
+        assertEquals(snapB.fingerprint, fp(d))
+        assertFalse(d.journal.has(farm))
+    }
+
     private fun assertBlocked(reason: OpBlocked.Reason, block: () -> Unit) {
         try {
             block()

@@ -99,7 +99,7 @@ sealed interface Message {
     data class Imported(val isNew: Boolean, val pointerRemoved: Boolean) : Message
     data class Blocked(val reason: OpBlocked.Reason) : Message
     data class ImportRejected(val reason: ImportException.Reason) : Message
-    data class WriteFailed(val detail: String, val rolledBack: Boolean, val beforeTime: Long?) : Message
+    data class WriteFailed(val detail: String, val rolledBack: Boolean, val beforeTime: Long?, val keptCurrent: Boolean = false) : Message
     data class DriveLinked(val email: String, val newVault: Boolean) : Message
     data object VaultMismatch : Message
     data object ShizukuMissing : Message
@@ -146,11 +146,12 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
         authInFlight = false
         // After Android recreated the app while Google's screen was open, the original callback
         // is gone; the action itself was saved, so exactly that action continues (F17, R08).
+        // The saved action is removed only when its job actually starts (S06).
         val action = saved.get<String>(KEY_PENDING_AUTH)
-        saved.remove<String>(KEY_PENDING_AUTH)
         val next = afterAuth ?: resumeAction(action)
         afterAuth = null
         if (next == null) {
+            saved.remove<String>(KEY_PENDING_AUTH)
             _state.update { it.copy(message = Message.AuthRetry) }
             return
         }
@@ -165,16 +166,17 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
 
     fun confirmCreateVault() {
         _state.update { it.copy(sync = it.sync.copy(confirmCreateVaultFor = null)) }
-        withToken(syncPrefs.email ?: pendingEmail, ACTION_LINK) { token ->
-            runBusyNoFs {
-                val api = DriveApi(token)
-                val vault = Vault.find(api) ?: Vault.create(api)
-                syncPrefs.email = api.aboutEmail()
-                syncPrefs.vaultId = vault.vaultId
-                _state.update { it.copy(sync = it.sync.copy(email = syncPrefs.email)) }
-                Message.DriveLinked(syncPrefs.email!!, newVault = true)
-            }
-        }
+        withToken(syncPrefs.email ?: pendingEmail, ACTION_CREATE_VAULT) { token -> createVault(token) }
+    }
+
+    /** The user confirmed: create (or, if one appeared meanwhile, use) the vault in this account. */
+    private fun createVault(token: String) = runBusyNoFs(fromAuth = true) {
+        val api = DriveApi(token)
+        val vault = Vault.find(api) ?: Vault.create(api)
+        syncPrefs.email = api.aboutEmail()
+        syncPrefs.vaultId = vault.folderId // never changes, unlike a late vault.json
+        _state.update { it.copy(sync = it.sync.copy(email = syncPrefs.email)) }
+        Message.DriveLinked(syncPrefs.email!!, newVault = true)
     }
 
     fun cancelCreateVault() = _state.update { it.copy(sync = it.sync.copy(confirmCreateVaultFor = null)) }
@@ -196,7 +198,9 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
      * Syncs every farm switched on for sync. Runs automatically whenever the app opens or comes
      * back ([quiet] = only report if something happened), and from the button.
      */
-    fun syncNow(quiet: Boolean = false) = withDrive(ACTION_SYNC) { engine, vault ->
+    fun syncNow(quiet: Boolean = false) = withDrive(ACTION_SYNC, syncJob(quiet))
+
+    private fun syncJob(quiet: Boolean): suspend (SyncEngine, Vault) -> Message? = { engine, vault ->
         val unfinished = _state.value.farms.map { it.folder }.filter { journal.get(it)?.kind == app.farmsync.companion.ops.JournalEntry.Kind.NEW_FARM }.toSet()
         val report = SyncRunner.lock.withLock { SyncRunner.run(engine, vault, _state.value.farms, syncPrefs::isEnabled, unfinished) }
         val results = report.results
@@ -228,7 +232,9 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
     }
 
     /** The user allowed a newer day to replace this device's unsaved mid-day progress. */
-    fun downloadAnyway(farm: String) = withDrive(ACTION_MIDDAY + farm) { engine, _ ->
+    fun downloadAnyway(farm: String) = withDrive(ACTION_MIDDAY + farm, middayJob(farm))
+
+    private fun middayJob(farm: String): suspend (SyncEngine, Vault) -> Message? = { engine, _ ->
         val local = _state.value.farms.first { it.folder == farm }
         val r = SyncRunner.lock.withLock { engine.sync(local, farm, allowMidday = true) }
         SyncRunner.log(getApplication()).append("user", listOf(r))
@@ -236,7 +242,9 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
         null
     }
 
-    fun downloadFromVault(farm: String) = withDrive(ACTION_DOWNLOAD + farm) { engine, _ ->
+    fun downloadFromVault(farm: String) = withDrive(ACTION_DOWNLOAD + farm, downloadJob(farm))
+
+    private fun downloadJob(farm: String): suspend (SyncEngine, Vault) -> Message? = { engine, _ ->
         val r = SyncRunner.lock.withLock { engine.downloadNew(farm) }
         SyncRunner.log(getApplication()).append("user", listOf(r))
         _state.update {
@@ -253,7 +261,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
     private var pendingEmail: String? = null
 
     /** Linking only talks to Drive: it must work even while Shizuku is not running. */
-    private fun finishLink(token: String) = runBusyNoFs {
+    private fun finishLink(token: String) = runBusyNoFs(fromAuth = true) {
         val api = DriveApi(token)
         val email = api.aboutEmail()
         pendingEmail = email
@@ -263,10 +271,10 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
                 _state.update { it.copy(sync = it.sync.copy(confirmCreateVaultFor = email)) }
                 null
             }
-            syncPrefs.vaultId != null && syncPrefs.vaultId != vault.vaultId -> Message.VaultMismatch
+            syncPrefs.vaultId != null && !vault.matches(syncPrefs.vaultId) -> Message.VaultMismatch
             else -> {
                 syncPrefs.email = email
-                syncPrefs.vaultId = vault.vaultId
+                syncPrefs.vaultId = vault.folderId // never changes, unlike a late vault.json
                 _state.update { it.copy(sync = it.sync.copy(email = email)) }
                 Message.DriveLinked(email, newVault = false)
             }
@@ -274,12 +282,13 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
     }
 
     /** Gets a Drive token for [email]; if Google needs the user, launches its UI first. */
-    /** The saved action as a callback for a fresh token (see [onAuthResult]). */
+    /** The saved action, continued with the token Google just returned (see [onAuthResult]). */
     private fun resumeAction(action: String?): ((String) -> Unit)? = when {
         action == ACTION_LINK -> { token -> finishLink(token) }
-        action == ACTION_SYNC -> { _ -> syncNow() }
-        action?.startsWith(ACTION_DOWNLOAD) == true -> { _ -> downloadFromVault(action.removePrefix(ACTION_DOWNLOAD)) }
-        action?.startsWith(ACTION_MIDDAY) == true -> { _ -> downloadAnyway(action.removePrefix(ACTION_MIDDAY)) }
+        action == ACTION_CREATE_VAULT -> { token -> createVault(token) }
+        action == ACTION_SYNC -> { token -> driveWith(token, syncJob(false)) }
+        action?.startsWith(ACTION_DOWNLOAD) == true -> { token -> driveWith(token, downloadJob(action.removePrefix(ACTION_DOWNLOAD))) }
+        action?.startsWith(ACTION_MIDDAY) == true -> { token -> driveWith(token, middayJob(action.removePrefix(ACTION_MIDDAY))) }
         else -> null
     }
 
@@ -309,14 +318,23 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
     /** Runs a sync job with an engine bound to the linked vault (refuses a different vault). */
     private fun withDrive(action: String, block: suspend (SyncEngine, Vault) -> Message?) {
         val email = syncPrefs.email ?: return
-        withToken(email, action) { token ->
-            runBusy { fs ->
-                val api = DriveApi(token)
-                val vault = Vault.find(api)
-                if (vault == null || vault.vaultId != syncPrefs.vaultId) return@runBusy Message.VaultMismatch
-                block(SyncEngine(fs, store, vault, syncPrefs, cacheDir, _state.value.gameVersion, journal), vault)
-            }
+        withToken(email, action) { token -> driveWith(token, block) }
+    }
+
+    private fun driveWith(token: String, block: suspend (SyncEngine, Vault) -> Message?) =
+        runBusy(fromAuth = true) { fs ->
+            val api = DriveApi(token)
+            val vault = Vault.find(api)
+            if (vault == null || !vault.matches(syncPrefs.vaultId)) return@runBusy Message.VaultMismatch
+            block(SyncEngine(fs, store, vault, syncPrefs, cacheDir, _state.value.gameVersion, journal), vault)
         }
+
+    /** Jobs that come back from Google sign-in and must not be dropped while the app is busy. */
+    private val deferred = ArrayDeque<() -> Unit>()
+
+    private fun runDeferred() {
+        if (_state.value.busy || _state.value.loading) return
+        deferred.removeFirstOrNull()?.invoke()
     }
 
 
@@ -348,6 +366,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
                 _state.update { it.copy(error = e.message ?: e.javaClass.simpleName) }
             } finally {
                 _state.update { it.copy(loading = false) }
+                runDeferred()
             }
             if (_state.value.error == null) autoSync()
         }
@@ -456,7 +475,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
     } catch (e: OpBlocked) {
         Message.Blocked(e.reason)
     } catch (e: OpFailed) {
-        Message.WriteFailed(e.message.orEmpty(), e.rolledBack, e.before?.createdAt)
+        Message.WriteFailed(e.message.orEmpty(), e.rolledBack, e.before?.createdAt, e.keptCurrent)
     }
 
     /**
@@ -515,9 +534,14 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
     }
 
     /** Runs [block] off the main thread with a progress bar; a returned message is shown. */
-    private fun runBusy(block: suspend (SaveFs) -> Message?) {
+    private fun runBusy(fromAuth: Boolean = false, block: suspend (SaveFs) -> Message?) {
         // Also not while the start-up scan runs: it may be snapshotting or repairing a farm.
-        if (_state.value.busy || _state.value.loading) return
+        // A job coming back from Google sign-in waits its turn instead of being dropped.
+        if (_state.value.busy || _state.value.loading) {
+            if (fromAuth) deferred.addLast { runBusy(fromAuth = true, block) }
+            return
+        }
+        if (fromAuth) saved.remove<String>(KEY_PENDING_AUTH) // accepted: it runs now
         // Say it plainly instead of Shizuku's internal "binder" errors.
         if (ShizukuGate.status(getApplication()) != ShizukuStatus.READY) {
             _state.update { it.copy(message = Message.ShizukuMissing) }
@@ -533,12 +557,17 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
                 Message.Failed(SyncRunner.reasonCode(e))
             }
             _state.update { it.copy(busy = false, message = msg ?: it.message) }
+            runDeferred()
         }
     }
 
     /** Like [runBusy] for work that only talks to Google Drive and never touches saves. */
-    private fun runBusyNoFs(block: suspend () -> Message?) {
-        if (_state.value.busy) return
+    private fun runBusyNoFs(fromAuth: Boolean = false, block: suspend () -> Message?) {
+        if (_state.value.busy) {
+            if (fromAuth) deferred.addLast { runBusyNoFs(fromAuth = true, block) }
+            return
+        }
+        if (fromAuth) saved.remove<String>(KEY_PENDING_AUTH)
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
             val msg = try {
@@ -547,6 +576,7 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
                 Message.Failed(SyncRunner.reasonCode(e))
             }
             _state.update { it.copy(busy = false, message = msg ?: it.message) }
+            runDeferred()
         }
     }
 
@@ -556,5 +586,6 @@ class FarmListViewModel(app: Application, private val saved: SavedStateHandle) :
         private const val ACTION_SYNC = "sync"
         private const val ACTION_DOWNLOAD = "download:"
         private const val ACTION_MIDDAY = "midday:"
+        private const val ACTION_CREATE_VAULT = "createVault"
     }
 }

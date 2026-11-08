@@ -76,3 +76,24 @@ Also:
 - The household vault migration. Install on both devices before either syncs.
 - The remaining window in which Stardew could start between two renames.
 - TalkBack, and layout at 200% font size.
+
+# Response to the 0.10.1 re-check (Farm Sync 0.10.2)
+
+All six findings in `codex-recheck-0.10.1.md` were confirmed and fixed. There are 83 unit tests now, 7 of them new.
+
+| # | Fix | Tests |
+|---|---|---|
+| S01 | A deliberate restore no longer marks anything before its upload. It supersedes every current end by naming them all as parents in one immutable upload, and is flagged `rst` as deliberate. A failed upload changes nothing in the vault, and the restore stays pending. Only ends beyond the 72-parent limit (practically never) are marked, and only after the restore is visible. | `SyncEngineTest.aRestoreThatFailsToUploadChangesNothingForOthers` |
+| S02 | A retry of a new-farm download records the verified files of the earlier attempt (`alsoOurs`), so a second interruption still recognises them. An incomplete folder that is ours (missing main file or SaveGameInfo) always stays retryable, because the game can't have played it. | `SaveOpsTest.aRetryAgainstANewerDriveVersionSurvivesASecondInterruption` |
+| S03 | The migration builds one plan per zip: the first manifest, by creation time, decides each record. Zips tagged earlier keep their id. A second zip with the same save gets an id derived from its file id (the same on every device), stays listed, and is never the newest. The vault identity is stable while `vault.json` is still missing: new links store the folder id, and `Vault.matches` accepts both. | `VaultMigrationTest.aZipInTwoManifestsKeepsOneStableId`, `aVaultStillBeingCreatedKeepsItsIdentity` |
+| S04 | The immediate rollback after a failed write uses the same live-state check as start-up recovery, before staging and again just before its renames. If the game saved meanwhile, that progress is kept with a snapshot (`OpFailed.keptCurrent`), and sync reports "next time". | `SaveOpsTest.theGameSavingRightAfterTheCommitIsNeverRolledOver` |
+| S05 | The graph resolves identical saves: a version is not an end if another version continued from a copy of the same save that is not in its own past. A deliberate restore is always an end. | `SyncModelTest.aLateCopyOfAContinuedSaveIsNotAnEnd`, `SyncEngineTest.aCopyOfTheSameSaveThatShowsUpLateIsNotAConflict` |
+| S06 | The saved Google action is removed only when its job starts, and it continues with the token Google returned. While the app is busy or starting up, it waits in a queue instead of being dropped. "Create vault" is its own action, so it doesn't ask again. | (Android-only; manual check) |
+
+Also: a plain download after a re-used upload is reported as a download, not as a resolved conflict.
+
+**Still open (needs devices):**
+- The service on emulated storage.
+- The household vault migration, after a verified backup and with both devices on 0.10.2.
+- The rename window while Stardew starts.
+- TalkBack, and layout at 200% font size.

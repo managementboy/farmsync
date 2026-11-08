@@ -54,6 +54,35 @@ class VaultMigrationTest {
     }
 
     @Test
+    fun aZipInTwoManifestsKeepsOneStableId() {
+        val d = legacyDrive()
+        // An old duplicate-folder race: a second manifest also describes zip c (and only c).
+        val folder = d.query("mimeType='application/vnd.google-apps.folder' and appProperties has {key='farmsyncFarm' and value='$farm'}").first()
+        val cFile = d.nodes.values.first { it.props["farmsyncVersion"] == fp('c') }.file.id
+        val second = JSONObject().put("farm", farm).put("head", fp('c')).put("versions", JSONObject().put(fp('c'),
+            JSONObject().put("fileId", cFile).put("parent", JSONObject.NULL).put("deviceId", "d2").put("deviceName", "Tablet")
+                .put("created", 9L).put("info", JSONObject().put("farmer", "F").put("farmName", "Farm").put("gameVersion", "1.6.15.3")
+                    .put("year", 1).put("season", 1).put("day", 2).put("playedMs", 20))))
+        d.upload("manifest.json", folder.id, "application/json", second.toString().toByteArray(),
+            mapOf("farmsyncFile" to "manifest", "farmsyncFarm" to farm))
+        check(d)
+        val c = Vault.find(d)!!.versions(farm).single { it.fingerprint == fp('c') }
+        assertEquals(fp('c').take(16), c.id) // what old devices have as their base
+        assertEquals(listOf(fp('a').take(16)), c.parents) // from the first manifest
+    }
+
+    @Test
+    fun aVaultStillBeingCreatedKeepsItsIdentity() {
+        val d = FakeDrive()
+        val root = d.createFolder("Farm Sync", null, mapOf("farmsync" to "vault")) // vault.json not there yet
+        val early = Vault.find(d)!!
+        d.upload("vault.json", root.id, "application/json", """{"vaultId":"uuid-1"}""".toByteArray(), mapOf("farmsyncFile" to "vault"))
+        val later = Vault.find(d)!!
+        assertTrue(later.matches(early.vaultId)) // what the early device stored still matches
+        assertTrue(later.matches(later.folderId))
+    }
+
+    @Test
     fun twoDevicesCreatingAVaultAtOnceEndUpInTheSameOne() {
         val d = FakeDrive()
         val a = Vault.create(d)

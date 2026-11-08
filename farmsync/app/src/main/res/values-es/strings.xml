@@ -238,4 +238,5 @@
     <string name="import_malformed">Este zip no contiene una partida de Stardew completa y válida. No se importó nada.</string>
     <string name="recovered_kept_current">%1$s: se encontró una escritura interrumpida, pero la granja se jugó después. Se dejó exactamente como está y se hizo una copia.</string>
     <string name="auth_retry">El inicio de sesión de Google terminó, pero Android había cerrado Farm Sync mientras tanto. Vuelve a pulsar la acción.</string>
+    <string name="write_kept_current">Detenido: Stardew guardó esta granja mientras se escribía. Tu progreso nuevo se dejó exactamente como está y se hizo una copia. No se sustituyó nada.</string>
 </resources>

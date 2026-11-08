@@ -34,6 +34,10 @@ class FakeSaveFs(val root: File) : SaveFs {
     /** Runs at the start of every commit (e.g. the player saving just before). */
     var beforeCommit: ((String) -> Unit)? = null
     var failCreateFolder = false
+    /** Throw [Killed] when the next file is staged. */
+    var killOnStage = false
+    /** Runs after every successful commit (e.g. the game starting and saving right then). */
+    var afterCommit: ((String) -> Unit)? = null
     /** Throw [Killed] when the old BACKUP_SAVE is about to be removed (after the commit). */
     var killOnPointerRemoval = false
     var commits = 0
@@ -65,6 +69,7 @@ class FakeSaveFs(val root: File) : SaveFs {
 
     override fun stage(farm: String, fileName: String, source: File, md5: String) {
         require(fileName in SavePaths.stageable(farm))
+        if (killOnStage) { killOnStage = false; throw Killed() }
         check(!gameRunning) { "Stardew is running" }
         val tmp = File(dir(farm), SavePaths.stagingName(fileName))
         source.copyTo(tmp, overwrite = true)
@@ -83,6 +88,7 @@ class FakeSaveFs(val root: File) : SaveFs {
             check(tmp.renameTo(File(dir(farm), name)))
         }
         if (killAfterRenames == fileNames.size) { killAfterRenames = null; throw Killed() }
+        afterCommit?.let { afterCommit = null; it(farm) }
         if (failAfterRenames == fileNames.size) { failAfterRenames = null; error("disk error") }
     }
 
@@ -184,6 +190,9 @@ class FakeVault(private val dir: File) : VersionVault {
 
     override fun farms() = farmOf.values.distinct()
 
+    /** Uploads fail (no connection). */
+    var failUploads = false
+
     /** Returned (once) by the next listing instead of the real state: a device's stale view. */
     var staleOnce: List<VersionEntry>? = null
 
@@ -194,6 +203,7 @@ class FakeVault(private val dir: File) : VersionVault {
     }
 
     override fun upload(farm: String, v: VersionEntry, zip: File): VersionEntry {
+        if (failUploads) throw java.io.IOException("offline")
         val fileId = "file${n++}"
         zip.copyTo(File(dir, fileId))
         // Through the real Drive property encoding, so its limits apply here too.

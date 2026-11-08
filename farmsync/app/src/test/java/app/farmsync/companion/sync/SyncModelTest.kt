@@ -73,6 +73,19 @@ class SyncModelTest {
     }
 
     @Test
+    fun aLateCopyOfAContinuedSaveIsNotAnEnd() {
+        val h = v("h")
+        val a = v("a", fp = "x", parents = listOf("h"))
+        val b = v("b", fp = "x", parents = listOf("h")) // same save, became visible late
+        val y = v("y", parents = listOf("a"), played = 50)
+        assertEquals(listOf("y"), VersionGraph.tips(listOf(h, a, b, y)).map { it.id })
+        assertFalse(VersionGraph.inConflict(listOf(h, a, b, y)))
+        // But a restore of an old save (same content as a version continued long ago) is an end.
+        val r = v("r", fp = "x", parents = listOf("y"))
+        assertEquals(listOf("r"), VersionGraph.tips(listOf(h, a, b, y, r)).map { it.id })
+    }
+
+    @Test
     fun sameContentOnTwoTipsIsNotAConflict() {
         val root = v("r")
         val a = v("a", fp = "same", parents = listOf("r"))

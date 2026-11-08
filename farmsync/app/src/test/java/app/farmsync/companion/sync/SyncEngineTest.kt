@@ -148,6 +148,45 @@ class SyncEngineTest {
     }
 
     @Test
+    fun aRestoreThatFailsToUploadChangesNothingForOthers() {
+        shared()
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        tablet.fs.writeFarm(farm, day = 7, playedMs = 7000)
+        sync(phone); sync(tablet); sync(phone) // a decided conflict: two ends, one lost
+        val before = vault.all.toList()
+        val old = phone.store.list(farm).first { it.info?.day == 5 }
+        app.farmsync.companion.ops.SaveOps(phone.fs, phone.store, phone.temp, phone.journal).restore(old, "1.6.15.3")
+        phone.state.setForced(farm, true)
+        vault.failUploads = true
+        assertTrue(runCatching { sync(phone) }.isFailure)
+        assertEquals(before, vault.all) // no mark, no change: other devices see exactly the same
+        assertEquals(Outcome.UP_TO_DATE, sync(tablet).outcome)
+        assertTrue(phone.state.isForced(farm)) // the restore is still waiting to be shared
+        vault.failUploads = false
+        assertEquals(Outcome.UPLOADED, sync(phone).outcome)
+        assertEquals(Outcome.DOWNLOADED, sync(tablet).outcome)
+        assertEquals(5, day(tablet))
+    }
+
+    @Test
+    fun aCopyOfTheSameSaveThatShowsUpLateIsNotAConflict() {
+        shared()
+        phone.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        tablet.fs.writeFarm(farm, day = 6, playedMs = 6000)
+        sync(phone)
+        vault.hideUploadsFor = 3 // the tablet's identical upload stays invisible for a while
+        vault.staleOnce = vault.all.filter { it.info?.day == 5 }
+        sync(tablet)
+        vault.hideUploadsFor = 0
+        phone.fs.writeFarm(farm, day = 7, playedMs = 7000)
+        assertEquals(Outcome.UPLOADED, sync(phone).outcome) // parents: only the phone's own day-6 copy
+        repeat(4) { vault.versions(farm) } // now the tablet's copy is visible too
+        assertFalse(VersionGraph.inConflict(vault.versions(farm)))
+        assertEquals(Outcome.DOWNLOADED, sync(tablet).outcome)
+        assertEquals(7, day(tablet))
+    }
+
+    @Test
     fun identicalSaveAlreadyInTheVaultIsUpToDate() {
         shared()
         phone.fs.writeFarm(farm, day = 6, playedMs = 6000)

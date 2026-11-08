@@ -99,23 +99,25 @@ class SyncEngine(
         // that uploaded identical saves are one point in history, not two lines of play).
         val baseFp = versions.firstOrNull { it.id == base }?.fingerprint
         val equivalent = versions.filter { baseFp != null && it.fingerprint == baseFp }.map { it.id }
-        val tips = VersionGraph.tips(versions).filter { !it.lost }
-        if (forced) {
-            // A deliberate restore replaces every current line of play: they are marked first, so
-            // the restore wins even if not all of them fit into its parent list.
-            tips.forEach { runCatching { vault.markLost(it) } }
-        }
-        val parents = (listOfNotNull(base) + equivalent + if (forced) tips.map { it.id } else emptyList())
-            .distinct().take(VersionProps.MAX_PARENTS)
+        // A deliberate restore replaces every current line of play by naming them all as its
+        // parents, in one immutable upload: nothing changes in the vault until it is there (S01).
+        val tips = if (forced) VersionGraph.tips(versions).filter { !it.lost }.sortedWith(ConflictPolicy.order.reversed()) else emptyList()
+        val wanted = (listOfNotNull(base) + equivalent + tips.map { it.id }).distinct()
+        val parents = wanted.take(VersionProps.MAX_PARENTS)
         // An upload of exactly this that an interrupted run left behind is reused, not repeated.
         val mine = versions.firstOrNull { it.deviceId == me && it.fingerprint == local.fingerprint && it.parents == parents }
-            ?: upload(local, parents)
+            ?: upload(local, parents, deliberate = forced)
 
         val after = vault.versions(farm)
         // Report success only once the new version can be found by every device. Until then
         // nothing is recorded here, so the next run finds and reuses this upload.
         if (after.none { it.id == mine.id }) return FarmSyncResult(farm, Outcome.FAILED, detail = "not_visible")
-        if (forced) state.setForced(farm, false)
+        if (forced) {
+            // Only if there were more lines than fit (practically never): the rest are marked
+            // now, after the restore is safely visible.
+            tips.filter { it.id !in parents }.forEach { runCatching { vault.markLost(it) } }
+            state.setForced(farm, false)
+        }
         state.setBase(farm, mine.id)
         val head = VersionGraph.head(after)!!
         val conflict = VersionGraph.inConflict(after)
@@ -125,7 +127,7 @@ class SyncEngine(
         }
         // Another device's line of play wins: ours stays in the vault (and as a snapshot here).
         val r = pull(local, head, allowMidday = false)
-        return if (r.outcome == Outcome.DOWNLOADED) r.copy(outcome = Outcome.RESOLVED_TOOK_REMOTE) else r
+        return if (r.outcome == Outcome.DOWNLOADED && conflict) r.copy(outcome = Outcome.RESOLVED_TOOK_REMOTE) else r
     }
 
     private fun pull(local: Farm, head: VersionEntry, allowMidday: Boolean): FarmSyncResult {
@@ -151,8 +153,11 @@ class SyncEngine(
         } catch (e: OpBlocked) {
             blocked(farm, e, head)
         } catch (e: OpFailed) {
-            FarmSyncResult(farm, if (e.rolledBack) Outcome.FAILED else Outcome.NEEDS_REPAIR, remote = head,
-                detail = if (e.rolledBack) "write_failed_rolled_back" else "write_failed")
+            when {
+                e.keptCurrent -> FarmSyncResult(farm, Outcome.RETRY_LATER, remote = head) // the game saved meanwhile
+                e.rolledBack -> FarmSyncResult(farm, Outcome.FAILED, remote = head, detail = "write_failed_rolled_back")
+                else -> FarmSyncResult(farm, Outcome.NEEDS_REPAIR, remote = head, detail = "write_failed")
+            }
         }
     }
 
@@ -169,7 +174,7 @@ class SyncEngine(
     }
 
     /** Uploads the farm's current state (via a snapshot zip) as a new version. */
-    private fun upload(local: Farm, parents: List<String>): VersionEntry {
+    private fun upload(local: Farm, parents: List<String>, deliberate: Boolean): VersionEntry {
         val snap = store.list(local.folder).firstOrNull { it.contentHash == local.contentHash }
             ?: store.create(fs, local, SnapshotOrigin.SYNC)
         check(snap.fingerprint == local.fingerprint) { "Snapshot does not match the farm" }
@@ -177,7 +182,7 @@ class SyncEngine(
             id = VersionEntry.newId(), fingerprint = local.fingerprint, fileId = "", parents = parents,
             deviceId = me, deviceName = state.deviceName, created = clock(),
             savedAt = local.files.firstOrNull { it.name == "SaveGameInfo" }?.mtime ?: 0L,
-            info = local.info,
+            info = local.info, deliberate = deliberate,
         )
         return vault.upload(local.folder, entry, store.zipFile(snap))
     }

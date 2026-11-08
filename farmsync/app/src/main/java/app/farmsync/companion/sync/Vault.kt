@@ -42,6 +42,9 @@ class Vault private constructor(
     val vaultId: String,
 ) : VersionVault {
 
+    /** True if [id] (as stored on this device) names this vault: its id or its folder's id. */
+    fun matches(id: String?) = id != null && (id == vaultId || id == folderId)
+
     override fun farms(): List<String> =
         api.query("'$folderId' in parents and mimeType='${DriveApi.FOLDER}' and trashed=false")
             .mapNotNull { f -> (f.appProperties[PROP_FARM_LEGACY] ?: f.name.takeIf { PROP_KEY in f.appProperties }) }
@@ -88,34 +91,36 @@ class Vault private constructor(
      */
     private fun migrateLegacy(folders: List<String>) {
         val zips = api.query("(${inAny(folders)}) and trashed=false and mimeType='application/zip'")
-        val untagged = zips.filter { PROP_VERSION_LEGACY in it.appProperties && VersionProps.MARK !in it.appProperties }
+        val legacyZips = zips.filter { PROP_VERSION_LEGACY in it.appProperties }
+        val untagged = legacyZips.filter { VersionProps.MARK !in it.appProperties }
         val manifests = api.query("(${inAny(folders)}) and trashed=false and appProperties has {key='$PROP_FILE' and value='manifest'}")
+            .sortedBy { it.createdTime }
         val open = manifests.filter { it.appProperties[PROP_MIGRATED] != MIGRATED }
         if (untagged.isEmpty() && open.isEmpty()) return
 
-        // Ids already in use (from earlier, possibly interrupted runs) are never given out twice.
-        val used = zips.mapNotNull { z -> z.appProperties["id"].takeIf { VersionProps.MARK in z.appProperties } }.toHashSet()
-        val inManifest = HashSet<String>()
-        for (m in manifests) { // all of them, also those marked done, to know which zips they describe
+        // One plan per zip (S03): the first manifest that describes a zip decides its record,
+        // also when several manifests (an old duplicate-folder race) mention the same zip.
+        val plan = LinkedHashMap<String, VersionEntry>()
+        for (m in manifests) { // all of them, also those marked done
             val legacy = LegacyManifest.fromJson(JSONObject(api.downloadText(m.id)))
-            for (v in LegacyManifest.toVersions(legacy)) {
-                inManifest += v.fileId
-                val zip = untagged.firstOrNull { it.id == v.fileId } ?: continue
-                // The same save in two zips (two folders from an old race): both stay listed.
-                val entry = if (used.add(v.id)) v else v.copy(id = VersionEntry.newId(), lost = true).also { used += it.id }
-                api.updateAppProperties(zip.id, VersionProps.encode(entry))
-            }
+            for (v in LegacyManifest.toVersions(legacy)) if (v.fileId !in plan) plan[v.fileId] = v
         }
         // Zips no manifest knew about (lost by an old overlapping write): kept, marked lost.
-        for (z in untagged) {
-            if (z.id in inManifest) continue
+        for (z in legacyZips) if (z.id !in plan) {
             val fp = z.appProperties.getValue(PROP_VERSION_LEGACY)
-            var id = LegacyManifest.migratedId(fp)
-            if (id in used) id = VersionEntry.newId() // same save as a known version: still listed
-            used += id
-            api.updateAppProperties(z.id, VersionProps.encode(
-                VersionEntry(id, fp, z.id, emptyList(), "", "", 0L, 0L, null, lost = true)
-            ))
+            plan[z.id] = VersionEntry(LegacyManifest.migratedId(fp), fp, z.id, emptyList(), "", "", 0L, 0L, null, lost = true)
+        }
+        // Zips tagged in an earlier (maybe interrupted) run keep their id: ids never change.
+        val owner = HashMap<String, String>() // version id -> zip file id
+        zips.filter { VersionProps.MARK in it.appProperties }.forEach { z -> z.appProperties["id"]?.let { owner[it] = z.id } }
+        for ((fileId, v) in plan) {
+            if (untagged.none { it.id == fileId }) continue
+            // The same save in a second zip gets an id derived from that zip, so every device
+            // assigns the same one; it stays listed but never becomes the newest.
+            val entry = if (owner[v.id] == null || owner[v.id] == fileId) v
+            else v.copy(id = duplicateId(fileId), lost = true)
+            owner[entry.id] = fileId
+            api.updateAppProperties(fileId, VersionProps.encode(entry))
         }
         open.forEach { api.updateAppProperties(it.id, mapOf(PROP_MIGRATED to MIGRATED)) }
     }
@@ -132,6 +137,8 @@ class Vault private constructor(
         private const val PROP_MIGRATED = "fsMigrated"
         private const val MIGRATED = "2"
 
+        private fun duplicateId(fileId: String) = farmKey("duplicate:$fileId")
+
         /** Short, fixed-length lookup key for a farm folder name. */
         fun farmKey(farm: String): String =
             MessageDigest.getInstance("MD5").digest(farm.toByteArray(Charsets.UTF_8))
@@ -147,6 +154,8 @@ class Vault private constructor(
             ).minByOrNull { it.createdTime } ?: return null
             val info = api.query("'${folder.id}' in parents and appProperties has {key='$PROP_FILE' and value='vault'} and trashed=false")
                 .firstOrNull()?.let { JSONObject(api.downloadText(it.id)) }
+            // While another device is still creating it, vault.json may not be visible yet; the
+            // folder id is used then, and [matches] accepts both forever after (S03).
             return Vault(api, folder.id, info?.optString("vaultId").orEmpty().ifEmpty { folder.id })
         }
 

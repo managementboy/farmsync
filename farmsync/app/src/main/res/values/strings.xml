@@ -232,4 +232,5 @@
     <string name="import_malformed">This zip does not contain a complete, valid Stardew save. Nothing was imported.</string>
     <string name="recovered_kept_current">%1$s: an interrupted write was found, but the farm was played since. It was kept exactly as it is, and a backup was made.</string>
     <string name="auth_retry">Google sign-in finished, but Android had closed Farm Sync meanwhile. Please tap the action again.</string>
+    <string name="write_kept_current">Stopped: Stardew saved this farm while it was being written. Your new progress was kept exactly as it is, and a backup was made. Nothing was replaced.</string>
 </resources>
