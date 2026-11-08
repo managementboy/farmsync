@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shizuku_not_installed">Shizuku no está instalado. Instálalo desde Play Store.</string>
+    <string name="shizuku_not_running">Shizuku no está activo. Activa la Depuración inalámbrica, abre Shizuku y pulsa Iniciar.</string>
+    <string name="shizuku_no_permission">Farm Sync necesita permiso en Shizuku.</string>
+    <string name="shizuku_ready">Shizuku listo</string>
+    <string name="grant_permission">Conceder permiso</string>
+    <string name="open_developer_options">Abrir Opciones de desarrollador</string>
+    <string name="check_again">Comprobar de nuevo</string>
+    <string name="game_version">Stardew Valley %1$s instalado</string>
+    <string name="game_not_installed">Stardew Valley no está instalado</string>
+    <string name="game_running">Stardew sigue abierto en segundo plano. Los cambios están bloqueados hasta que lo cierres desde Aplicaciones recientes.</string>
+    <string name="no_farms">No se encontraron granjas.</string>
+    <string name="farm_date">Año %1$d · %3$d de %2$s · %4$dh %5$02dm jugadas</string>
+    <string name="farm_version">Versión del juego %1$s</string>
+    <string name="farm_incomplete">Carpeta de partida incompleta</string>
+    <string name="badge_test">PRUEBA</string>
+    <string name="badge_midday">☀ a mitad del día</string>
+    <string name="error_prefix">Error: %1$s</string>
+    <string name="snapshot_all">Copiar todas</string>
+    <string name="snapshot_now">Crear copia ahora</string>
+    <plurals name="snapshots_created">
+        <item quantity="one">%1$d copia creada</item>
+        <item quantity="many">%1$d copias creadas</item>
+        <item quantity="other">%1$d copias creadas</item>
+    </plurals>
+    <string name="nothing_changed">Nada ha cambiado desde la última copia</string>
+    <string name="archived_title">No están en este dispositivo (guardadas en copias)</string>
+    <string name="archived_hint">Esta granja ya no está en este dispositivo. Sus copias se conservan.</string>
+    <string name="no_snapshots">Aún no hay copias</string>
+    <string name="last_snapshot">Última copia: %1$s (%2$d en total)</string>
+    <string name="changed_since_snapshot">Ha cambiado desde la última copia</string>
+    <string name="snapshots_title">Copias (%1$d)</string>
+    <string name="same_as_device">Igual que en este dispositivo</string>
+    <string name="pin">Fijar</string>
+    <string name="unpin">Soltar</string>
+    <string name="origin_manual">manual</string>
+    <string name="origin_auto_open">automática</string>
+    <string name="origin_before_restore">antes de restaurar</string>
+    <string name="origin_before_import">antes de importar</string>
+    <string name="restore_button">Restaurar…</string>
+    <string name="restore_title">¿Restaurar esta copia?</string>
+    <string name="restore_now_label">Ahora en este dispositivo</string>
+    <string name="restore_then_label">Copia del %1$s</string>
+    <string name="restore_goes_back">Esto vuelve atrás en el tiempo: el progreso posterior a la copia se reemplazará.</string>
+    <string name="restore_midday_warning">Este dispositivo tiene progreso a mitad del día (☀) en esta granja. Se guardará en la copia de seguridad y el juego no ofrecerá continuarlo.</string>
+    <string name="restore_safety_note">Primero se crea una copia de seguridad del estado actual, así puedes deshacerlo.</string>
+    <string name="restore_confirm">Restaurar</string>
+    <string name="cancel">Cancelar</string>
+    <string name="restored">Restaurada y verificada.</string>
+    <string name="restored_with_pointer">Restaurada y verificada. El progreso a mitad del día se conserva en la copia de seguridad.</string>
+    <string name="blocked_game_running">No se restauró: Stardew sigue abierto. Ciérralo desde Aplicaciones recientes y vuelve a intentarlo.</string>
+    <string name="blocked_farm_missing">No se restauró: esta granja no está en este dispositivo.</string>
+    <string name="blocked_newer_version">No se restauró: esta copia necesita una versión de Stardew más nueva que la instalada.</string>
+    <string name="blocked_incomplete">No se restauró: a la copia le faltan archivos necesarios.</string>
+    <string name="restore_failed_rolled_back">La restauración falló (%1$s). Se volvió al estado anterior y se verificó (copia de seguridad del %2$s).</string>
+    <string name="restore_failed_no_rollback">La restauración falló (%1$s) y también falló la reversión automática. Restaura manualmente la copia de seguridad del %2$s.</string>
+    <string name="import_button">Importar</string>
+    <string name="export_button">Exportar…</string>
+    <string name="imported_new">Granja añadida y verificada.</string>
+    <string name="imported_replaced">Granja reemplazada y verificada. El estado anterior está en una copia de seguridad.</string>
+    <string name="imported_replaced_with_pointer">Granja reemplazada y verificada. El estado anterior, incluido el progreso a mitad del día, está en una copia de seguridad.</string>
+    <string name="blocked_farm_exists">No se importó: esta granja ya existe en este dispositivo.</string>
+    <string name="import_not_zip">Este archivo no es un zip.</string>
+    <string name="import_no_farm">No se encontró ninguna carpeta de granja (como Nombre_123456789) en el zip.</string>
+    <string name="import_several">El zip contiene varias granjas. Importa una granja por zip.</string>
+    <string name="import_unsafe">El zip contiene rutas no seguras y se rechazó.</string>
+    <string name="import_missing">A la granja del zip le faltan archivos necesarios.</string>
+    <string name="import_id_mismatch">El ID de la carpeta no coincide con la partida que contiene.</string>
+    <string name="import_too_large">El zip es demasiado grande para ser una partida de Stardew.</string>
+    <string name="import_new_failed">La importación falló (%1$s). La nueva carpeta puede estar incompleta; vuelve a importar.</string>
+    <string name="import_title_new">¿Añadir esta granja?</string>
+    <string name="import_title_replace">¿Reemplazar esta granja?</string>
+    <string name="import_incoming_label">Del archivo</string>
+    <string name="import_older_warning">El archivo es MÁS ANTIGUO que la granja de este dispositivo. El progreso de aquí se reemplazaría.</string>
+    <string name="import_was_deleted">Esta granja se borró antes en este dispositivo. Importarla la recupera.</string>
+    <string name="import_ignored_note">Los archivos de mitad del día del zip no se importan; la granja empieza a las 6 de la mañana de su día guardado.</string>
+    <string name="import_confirm_new">Añadir</string>
+    <string name="import_confirm_replace">Reemplazar</string>
+    <string-array name="seasons">
+        <item>primavera</item>
+        <item>verano</item>
+        <item>otoño</item>
+        <item>invierno</item>
+    </string-array>
+</resources>

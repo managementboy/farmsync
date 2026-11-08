@@ -1,0 +1,23 @@
+# Real save files and test saves: never publish
+backups/
+testdata/
+*.zip
+
+# Local settings and secrets
+scripts/farmsync.env
+local.properties
+*.keystore
+*.jks
+
+# Build output and caches
+.gradle/
+.kotlin/
+build/
+*.apk
+*.aab
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+__pycache__/

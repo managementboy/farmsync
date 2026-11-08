@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Farm Sync</string>
+    <string name="shizuku_not_installed">Shizuku is not installed. Install it from the Play Store.</string>
+    <string name="shizuku_not_running">Shizuku is not running. Turn on Wireless debugging, then open Shizuku and tap Start.</string>
+    <string name="shizuku_no_permission">Farm Sync needs permission in Shizuku.</string>
+    <string name="shizuku_ready">Shizuku ready</string>
+    <string name="grant_permission">Grant permission</string>
+    <string name="open_developer_options">Open Developer options</string>
+    <string name="check_again">Check again</string>
+    <string name="game_version">Stardew Valley %1$s installed</string>
+    <string name="game_not_installed">Stardew Valley is not installed</string>
+    <string name="game_running">Stardew is open in the background. Changes are blocked until you swipe it away in Recent apps.</string>
+    <string name="no_farms">No farms found.</string>
+    <string name="farm_date">Year %1$d · %2$s %3$d · %4$dh %5$02dm played</string>
+    <string name="farm_version">Game version %1$s</string>
+    <string name="farm_incomplete">Incomplete save folder</string>
+    <string name="badge_test">TEST</string>
+    <string name="badge_midday">☀ mid-day</string>
+    <string name="error_prefix">Error: %1$s</string>
+    <string name="snapshot_all">Snapshot all</string>
+    <string name="snapshot_now">Snapshot now</string>
+    <plurals name="snapshots_created">
+        <item quantity="one">%1$d snapshot created</item>
+        <item quantity="other">%1$d snapshots created</item>
+    </plurals>
+    <string name="nothing_changed">Nothing changed since the last snapshot</string>
+    <string name="archived_title">Not on this device (kept in snapshots)</string>
+    <string name="archived_hint">This farm is no longer on this device. Its snapshots are kept.</string>
+    <string name="no_snapshots">No snapshots yet</string>
+    <string name="last_snapshot">Last snapshot: %1$s (%2$d total)</string>
+    <string name="changed_since_snapshot">Changed since the last snapshot</string>
+    <string name="snapshots_title">Snapshots (%1$d)</string>
+    <string name="same_as_device">Same as on this device</string>
+    <string name="pin">Pin</string>
+    <string name="unpin">Unpin</string>
+    <string name="origin_manual">manual</string>
+    <string name="origin_auto_open">automatic</string>
+    <string name="origin_before_restore">before restore</string>
+    <string name="origin_before_import">before import</string>
+    <string name="restore_button">Restore…</string>
+    <string name="restore_title">Restore this snapshot?</string>
+    <string name="restore_now_label">Now on this device</string>
+    <string name="restore_then_label">Snapshot from %1$s</string>
+    <string name="restore_goes_back">This goes back in time: progress after the snapshot will be replaced.</string>
+    <string name="restore_midday_warning">This device has mid-day progress (☀) for this farm. It will be put aside into the safety snapshot and the game will not offer to resume it.</string>
+    <string name="restore_safety_note">A safety snapshot of the current state is taken first, so you can undo this.</string>
+    <string name="restore_confirm">Restore</string>
+    <string name="cancel">Cancel</string>
+    <string name="restored">Restored and verified.</string>
+    <string name="restored_with_pointer">Restored and verified. The mid-day progress is kept in the safety snapshot.</string>
+    <string name="blocked_game_running">Not restored: Stardew is still open. Swipe it away in Recent apps and try again.</string>
+    <string name="blocked_farm_missing">Not restored: this farm is not on this device.</string>
+    <string name="blocked_newer_version">Not restored: this snapshot needs a newer Stardew version than the one installed.</string>
+    <string name="blocked_incomplete">Not restored: the snapshot is missing required files.</string>
+    <string name="restore_failed_rolled_back">Restore failed (%1$s). The previous state was put back and verified (safety snapshot from %2$s).</string>
+    <string name="restore_failed_no_rollback">Restore failed (%1$s) and the automatic undo also failed. Restore the safety snapshot from %2$s manually.</string>
+    <string name="import_button">Import</string>
+    <string name="export_button">Export…</string>
+    <string name="imported_new">Farm added and verified.</string>
+    <string name="imported_replaced">Farm replaced and verified. The previous state is in a safety snapshot.</string>
+    <string name="imported_replaced_with_pointer">Farm replaced and verified. The previous state, incl. mid-day progress, is in a safety snapshot.</string>
+    <string name="blocked_farm_exists">Not imported: this farm already exists on this device.</string>
+    <string name="import_not_zip">This file is not a zip archive.</string>
+    <string name="import_no_farm">No farm folder (like Name_123456789) found in the zip.</string>
+    <string name="import_several">The zip contains several farms. Import one farm per zip.</string>
+    <string name="import_unsafe">The zip contains unsafe paths and was rejected.</string>
+    <string name="import_missing">The farm in the zip is missing required files.</string>
+    <string name="import_id_mismatch">The farm ID in the folder name does not match the save inside.</string>
+    <string name="import_too_large">The zip is too large to be a Stardew save.</string>
+    <string name="import_new_failed">Import failed (%1$s). The new farm folder may be incomplete; import again.</string>
+    <string name="import_title_new">Add this farm?</string>
+    <string name="import_title_replace">Replace this farm?</string>
+    <string name="import_incoming_label">From the file</string>
+    <string name="import_older_warning">The file is OLDER than the farm on this device. Progress here would be replaced.</string>
+    <string name="import_was_deleted">This farm was deleted on this device before. Importing brings it back.</string>
+    <string name="import_ignored_note">Mid-day files in the zip are not imported; the farm starts at 6 am of its saved day.</string>
+    <string name="import_confirm_new">Add</string>
+    <string name="import_confirm_replace">Replace</string>
+    <string-array name="seasons">
+        <item>Spring</item>
+        <item>Summer</item>
+        <item>Fall</item>
+        <item>Winter</item>
+    </string-array>
+</resources>
