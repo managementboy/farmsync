@@ -69,6 +69,7 @@ data class UiState(
     val sync: SyncUi = SyncUi(),
     /** Settings / diagnostics screen open. */
     val showSettings: Boolean = false,
+    val showAbout: Boolean = false,
 )
 
 data class SyncUi(
@@ -344,6 +345,7 @@ class FarmListViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openSettings(open: Boolean) = _state.update { it.copy(showSettings = open) }
+    fun openAbout(open: Boolean) = _state.update { it.copy(showAbout = open) }
 
     /** Newest sync results first, for the diagnostics screen. */
     fun syncLogEntries(): List<app.farmsync.companion.sync.SyncLog.Entry> =

@@ -14,8 +14,8 @@ android {
         minSdk = 33
         targetSdk = 36
         // Bump on every service change: Shizuku restarts the UserService when this differs.
-        versionCode = 11
-        versionName = "0.9.1"
+        versionCode = 12
+        versionName = "0.9.2"
     }
 
     // One fixed household key for all builds. Its SHA-1 is registered for the Google Drive

@@ -105,7 +105,10 @@ fun SettingsScreen(state: UiState, vm: FarmListViewModel, snackbar: SnackbarHost
                 }
             }
             item {
-                Text(stringResource(R.string.settings_licenses), fontSize = 12.sp, color = c.ink2, modifier = Modifier.padding(4.dp))
+                PixelButton(
+                    stringResource(R.string.about_title), onClick = { vm.openAbout(true) },
+                    icon = R.drawable.pi_chevron_right, modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }

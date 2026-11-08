@@ -198,7 +198,6 @@
     <string name="diag_wifi_note">Shizuku needs Wireless debugging, which only works on Wi-Fi networks you allowed once.</string>
     <string name="settings_sync_log">Sync log</string>
     <string name="sync_log_empty">No syncs yet</string>
-    <string name="settings_licenses">Pixel fonts Pixelify Sans and Silkscreen (SIL OFL) · icons Pixelarticons (MIT) · app icon and design are original. Not affiliated with ConcernedApe or Chucklefish.</string>
     <string name="just_now">just now</string>
     <string-array name="seasons">
         <item>Spring</item>
@@ -206,4 +205,13 @@
         <item>Fall</item>
         <item>Winter</item>
     </string-array>
+    <string name="about_title">About Farm Sync</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_blurb">Backs up your Stardew Valley farms and keeps them in sync between your Android devices through your own Google Drive.</string>
+    <string name="about_project_page">Project page</string>
+    <string name="about_source_code">Source code on GitHub</string>
+    <string name="about_privacy">Privacy policy</string>
+    <string name="about_copyright">© 2026 Elkin Fricke. Free and open source under the MIT licence.</string>
+    <string name="about_licenses">Open-source licences</string>
+    <string name="about_trademark">Stardew Valley is a trademark of ConcernedApe LLC. Farm Sync is an independent fan project and is not affiliated with or endorsed by ConcernedApe or Chucklefish. It uses no artwork from the game.</string>
 </resources>

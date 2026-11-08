@@ -117,6 +117,11 @@ fun FarmListScreen(vm: FarmListViewModel) {
         ImportDialog(preview, state.gameRunning, onConfirm = vm::confirmImport, onDismiss = vm::cancelImport)
     }
 
+    if (state.showAbout) {
+        BackHandler { vm.openAbout(false) }
+        AboutScreen(onBack = { vm.openAbout(false) })
+        return
+    }
     if (state.showSettings) {
         BackHandler { vm.openSettings(false) }
         SettingsScreen(state, vm, snackbar)
@@ -188,6 +193,11 @@ fun FarmListScreen(vm: FarmListViewModel) {
                             text = { Text(stringResource(R.string.settings_title)) },
                             leadingIcon = { PixelIcon(R.drawable.pi_settings_cog, null) },
                             onClick = { menu = false; vm.openSettings(true) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.about_title)) },
+                            leadingIcon = { AppMark(size = 24.dp) },
+                            onClick = { menu = false; vm.openAbout(true) },
                         )
                     }
                 },
