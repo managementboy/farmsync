@@ -1,6 +1,14 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+val keyDir = System.getProperty("user.home") + "/.farmsync"
+val releaseProps = Properties().also { p ->
+    val f = File("$keyDir/release-signing.properties")
+    if (f.exists()) f.inputStream().use { p.load(it) }
 }
 
 android {
@@ -14,19 +22,28 @@ android {
         minSdk = 33
         targetSdk = 36
         // Bump on every service change: Shizuku restarts the UserService when this differs.
-        versionCode = 20
-        versionName = "1.0.0"
+        versionCode = 22
+        versionName = "1.0.2"
     }
 
-    // One fixed household key for all builds. Its SHA-1 is registered for the Google Drive
-    // login, and keeping it means updates never wipe the app's snapshots.
-    // The key lives outside the project: ~/.farmsync/farmsync-household.keystore
+    // Signing keys live outside the project, in ~/.farmsync/:
+    // - "household": the original key of 1.0.0 (a debug-style key), still used for debug builds.
+    // - "release": the release key since 1.0.1. Its password is only in
+    //   ~/.farmsync/release-signing.properties (never in this repo). Google Play can't use a
+    //   debug-style key, so 1.0.1 hands the app over from the household key to this one
+    //   (APK key rotation, see scripts/sign-release.sh); installed copies update normally.
     signingConfigs {
         create("household") {
-            storeFile = file(System.getProperty("user.home") + "/.farmsync/farmsync-household.keystore")
+            storeFile = file("$keyDir/farmsync-household.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
+        }
+        if (releaseProps.isNotEmpty()) create("release") {
+            storeFile = file(releaseProps.getProperty("storeFile"))
+            storePassword = releaseProps.getProperty("storePassword")
+            keyAlias = releaseProps.getProperty("keyAlias")
+            keyPassword = releaseProps.getProperty("keyPassword")
         }
     }
 
@@ -36,7 +53,7 @@ android {
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("household")
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
